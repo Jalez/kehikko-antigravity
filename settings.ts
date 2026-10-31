@@ -2,7 +2,7 @@ import { realpathSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { isAbsolute, normalize, sep } from 'node:path'
 
-import { KEHIKOT_DIR, settingValueIssue, settingsDeclarationSchema, type SettingField } from 'kehikot-module-protocol'
+import { ACT_ON_MESSAGES_SETTING, KEHIKOT_DIR, WAKE_ON_MESSAGES_SETTING, settingValueIssue, settingsDeclarationSchema, type SettingField } from 'kehikot-module-protocol'
 
 /**
  * Antigravity's settings as a host shows them (protocol 2.15.0, `declares.settings`), kept in the
@@ -82,6 +82,9 @@ export const SETTINGS: SettingField[] = settingsDeclarationSchema.parse([
     default: [],
     personOnly: true,
   },
+  /* (protocol 2.43.0) The protocol's own two, the same in every agent module: a message wakes an idle session, and may be acted on. */
+  WAKE_ON_MESSAGES_SETTING,
+  ACT_ON_MESSAGES_SETTING,
 ])
 
 /** A project's settings for this module. */
@@ -92,9 +95,13 @@ export interface Settings {
   mode: string
   /** Absolute folders beside the project that its sessions are given as workspace folders (`--add-dir`). */
   folders: string[]
+  /** Type one line into an idle session's prompt when a message comes for it (protocol 2.43.0). */
+  wakeOnMessages: boolean
+  /** Sessions here may act on requests from other agent sessions in the project (protocol 2.43.0). */
+  actOnMessages: boolean
 }
 
-export const DEFAULTS: Settings = { resumeCutOff: true, model: '', effort: 'default', mode: 'default', folders: [] }
+export const DEFAULTS: Settings = { resumeCutOff: true, model: '', effort: 'default', mode: 'default', folders: [], wakeOnMessages: true, actOnMessages: true }
 
 /** Folders that, with everything inside them, are the system's: never a session's workspace. */
 const SYSTEM = ['/System', '/Library', '/bin', '/sbin', '/usr', '/etc', '/dev', '/cores', '/Applications', '/private/etc', '/private/var/db', '/private/var/root']
