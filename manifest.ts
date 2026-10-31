@@ -62,9 +62,9 @@ export const MANIFEST: Manifest = manifestSchema.parse({
   protocol: PROTOCOL,
   id: ID,
   name: 'Antigravity',
-  /* The icon a host draws beside the name: a key of the protocol's module icons. The protocol has
-     no Antigravity or Gemini mark (`BRAND_MODULE_ICONS`), so a Lucide one no other module uses. */
-  icon: 'lucide:rocket',
+  /* The icon a host draws beside the name: a key of the protocol's module icons, the mark of the
+     tool this module fronts (`BRAND_MODULE_ICONS`). */
+  icon: 'brand:googlegemini',
   version: VERSION,
   /* The format of `.kehikot/antigravity/places.json`. Raise it only in the release
      that first writes data an older release cannot read. */
