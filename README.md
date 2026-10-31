@@ -91,6 +91,12 @@ live in the OS keyring; none were read.
 - **The kehikko's MCP doors** and **skills**, for that one process.
 - **Working, needs you, finished** in the Inbox and the View menu, with a notice when nobody is looking.
 - **The context meter** under the session, **Compact** and **Clear** on a press.
+- **The footer.** In an app that draws module footers (protocol 2.38.0, `kehikot.footer`), the
+  context meter, the model, **Compact** and **Clear** (Clear with the app's confirm, neither for
+  agents) and the notes along the bottom — folder renamed, modules changed, session ended, install
+  failed, each with its button as a run (and the install log as a toggle) — are declared as footer
+  items (`src/view/footer.ts`) and the page draws none of its own. Any other app gets no footer and
+  the page draws its own line and rows as before.
 - **`sessions`** and **`tell_finished`** on its MCP door (`kehikko-antigravity`).
 
 ## What does not work yet
