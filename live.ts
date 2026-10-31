@@ -17,7 +17,7 @@ import { cutOffs, cutOffWords, midTurn, movedOn, type CutOff } from './cutoff.ts
 import { PROGRAM, TELLS, headOf, home, learnSession, learnTitle, oscEvents, recordFile, sessionName, vouch, type Active, type ActiveStatus, type HookGroup, type Program, type Running, type State } from './program.ts'
 import { PLACE_TOKEN, assign, attach, born, byToken, follow, homeOf, markSession, markSessions, note, projectRoot, readPlaces, readSettings, recordedIds, sighted, tokenFor, type NamedPlace, type PlaceEntry, type Places, type SessionEntry } from './record.ts'
 import { contextScriptIn, removeKit, sessionKit, writeHooks, writeSettings } from './skills.ts'
-import { sessionFlags } from './settings.ts'
+import { extraFolders, folderFlags, sessionFlags } from './settings.ts'
 import { freshToken, hostDoors, hostPlace, type DoorsAsked, type HostPlace, type SessionDoor } from './doorConfig.ts'
 import { readPlaceKey } from './place.ts'
 import { EVENT_IDS, type Found, type Told } from './research.ts'
@@ -629,6 +629,11 @@ export interface Run {
   token: string | null
   /** The doors it was started with, by module id: what "Restart to load …" compares against. */
   doors: SessionDoor[]
+  /**
+   * The project's other folders it was started with (`--add-dir`, settings.ts `extraFolders`): what
+   * "applies when the session restarts" compares against. Absent for a run started with none.
+   */
+  folders?: string[]
   /** Its `--mcp-config` file, removed when the process ends. */
   config: string | null
   /** Its own folder (`sessionKit` in skills.ts: its skills and its context hook), removed when the process ends. */
@@ -1988,18 +1993,43 @@ export class Runs {
   }
 
   /**
+   * Whether the project's other folders (settings.ts) are not the ones `run` was started with: a
+   * change the person made applies when the session restarts. Never for a run this module did not
+   * start (a view of one started elsewhere) — it was given no folders of this module's.
+   */
+  foldersChanged(run: Run): boolean {
+    if (run.what !== 'session' || run.ended || run.joined || !run.pty) return false
+    const now = extraFolders(readSettings(run.projectPath), run.cwd || run.projectPath)
+    const had = run.folders ?? []
+    return now.length !== had.length || now.some((one, n) => one !== had[n])
+  }
+
+  /**
+   * The person saved the project's settings: each running session of that project whose other
+   * folders are now not the ones it has is told so, for the line that offers a restart, and told
+   * again when they are the same once more.
+   */
+  settingsSaved(projectPath: string): void {
+    for (const run of this.runs.values()) {
+      if (run.what !== 'session' || run.projectPath !== projectPath) continue
+      const changed = this.foldersChanged(run)
+      for (const viewer of run.viewers) viewer.say({ session: run.settled ?? run.id, folders: changed ? 'changed' : 'same' })
+    }
+  }
+
+  /**
    * End a session whose project's folder was renamed under it, so that it is resumed in the new
    * folder: only on a person's press, and never while it is working. Its viewers are closed with
    * `CLOSED.moved` and open it again, which resumes the same session with the new folder as its
    * working directory. A sentence when it is not done.
    */
-  restartIn(id: string, why: 'moved' | 'doors' = 'moved'): true | string {
+  restartIn(id: string, why: 'moved' | 'doors' | 'folders' = 'moved'): true | string {
     const run = this.find(id)
     if (!run) return 'That session is not running.'
     if (why === 'moved' && run.cwd === run.projectPath) return 'That session already runs in its project’s folder.'
     if (run.state === 'working') return 'It is working. Restart it when it is idle.'
     run.restarting = true
-    this.log(`antigravity: ${run.settled ?? run.id} is ended by a person to be resumed ${why === 'doors' ? 'with the doors of its kehikko now' : `in ${run.projectPath}`}`)
+    this.log(`antigravity: ${run.settled ?? run.id} is ended by a person to be resumed ${why === 'doors' ? 'with the doors of its kehikko now' : why === 'folders' ? 'with the project’s other folders now' : `in ${run.projectPath}`}`)
     kill(run.pty)
     return true
   }
@@ -2208,10 +2238,13 @@ export class Runs {
         })
       }
     }
+    /* The folders beside the project the person gave this project's sessions (settings.ts): read as the project is, without asking file by file. */
+    const folders = extraFolders(settings, projectPath)
     const args = [
       ...(settled ? this.program.resume(settled, undefined, line) : this.program.fresh(id)),
       /* Its own folder as a workspace root: its hooks, doors and skills; and its status line, for this one process. */
       ...(kit ? this.program.kitArgs(kit.dir, settingsFile) : []),
+      ...folderFlags(folders),
       /* The project's own choices of model, effort and mode (settings.ts); nothing about the sandbox. */
       ...sessionFlags(settings),
     ]
@@ -2281,6 +2314,7 @@ export class Runs {
       ended: false,
       token,
       doors,
+      ...(folders.length ? { folders } : {}),
       config: null,
       plugin: kit?.dir ?? null,
       owned: false,
@@ -2292,7 +2326,7 @@ export class Runs {
     }
     this.runs.set(id, run)
     this.keepWatching()
-    this.log(`antigravity: ${found.file} ${settled ? `resume ${settled}` : '(new)'}${tells ? ', asked to report' : ''}${doors.length ? `, ${doors.length} door${doors.length === 1 ? '' : 's'}` : ''}${kit?.skills.length ? `, ${kit.skills.length} skill${kit.skills.length === 1 ? '' : 's'}` : ''}${line ? ', told it was cut off' : ''} in ${projectPath} (pid ${pty.pid})`)
+    this.log(`antigravity: ${found.file} ${settled ? `resume ${settled}` : '(new)'}${tells ? ', asked to report' : ''}${doors.length ? `, ${doors.length} door${doors.length === 1 ? '' : 's'}` : ''}${kit?.skills.length ? `, ${kit.skills.length} skill${kit.skills.length === 1 ? '' : 's'}` : ''}${line ? ', told it was cut off' : ''}${folders.length ? `, with ${folders.join(', ')}` : ''} in ${projectPath} (pid ${pty.pid})`)
     if (copyOf) this.log(`antigravity: ${settled} is open in another process (pid ${copyOf.pid ?? '?'}) and a person chose to open it here anyway`)
     if (unchecked) {
       this.log(`antigravity: ${settled} was resumed without asking whether it is open elsewhere — ${unchecked === 'too-old' ? 'this copy cannot be asked' : 'the asking failed'}`)
@@ -2448,6 +2482,8 @@ export class Runs {
       ...(run.unchecked ? { unchecked: run.unchecked } : {}),
       /* The project's folder was renamed while it ran: the program still has the old one. */
       ...(run.what === 'session' && movedWord(run).moved ? movedWord(run) : {}),
+      /* The person changed the project's other folders since it started: they apply when it restarts. */
+      ...(run.what === 'session' && this.foldersChanged(run) ? { folders: 'changed' } : {}),
     })
     /* On screen until the page says otherwise: a view connects when it is shown. */
     run.looking.add(viewer)

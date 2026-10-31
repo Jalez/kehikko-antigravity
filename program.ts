@@ -45,7 +45,7 @@ import { readPlaces } from './record.ts'
  * ## Every command line this module ever runs, and it is the whole list
  *
  *     agy --help                                               once per binary: which flags it has
- *     agy [--conversation <id> [-i <line>]] --add-dir <kit> [--settings <file>] [--model m] [--effort e] [--mode m]
+ *     agy [--conversation <id> [-i <line>]] --add-dir <kit> [--settings <file>] [--add-dir <folder>]... [--model m] [--effort e] [--mode m]
  *     ps -axo pid=,args=                                       which agy process holds which conversation: reads
  *     lsof -a -d cwd -F pn -p <pids>                           the folder each of those runs in: reads
  *
@@ -54,6 +54,11 @@ import { readPlaces } from './record.ts'
  * its MCP doors (`.agents/mcp_config.json`) and its skills (`.agents/skills/<name>/SKILL.md`).
  * `--settings <file>` is "settings for this session only, never saved" (`agy --help`): it carries
  * the status line that reports the session's context. Nothing in `~/.gemini` is written.
+ *
+ * It is started in its project's folder (the pty's working directory), which makes the project its
+ * workspace: the CLI reads workspace files without asking and asks for each file outside it (the
+ * docs' Permissions page). Each `--add-dir <folder>` after the kit is one of the project's "Other
+ * folders sessions may work in" (settings.ts `extraFolders`), the person's own list.
  *
  * Checked against `agy --help` of 1.4.12 and the docs at antigravity.google/docs (read
  * 2026-10-31). The CLI was not run with an account: the tests run a stand-in (test/stand-in/agy).

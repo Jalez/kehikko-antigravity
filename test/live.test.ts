@@ -10,7 +10,7 @@ import { RESEARCH_LINE, SELF as CONTEXT_SELF } from '../context.ts'
 import { NOTES_VERSION, UPDATED_HEAD, sessionNotes, type AbsentModule } from 'kehikot-module-protocol'
 import { freshToken } from '../doorConfig.ts'
 import { PROGRAM, TELLS, type Active, type Program, type Recorded } from '../program.ts'
-import { assign, detach, ignore, readPlaces, sessionsAt, type NamedPlace } from '../record.ts'
+import { assign, detach, ignore, readPlaces, readSettings, sessionsAt, writeSettings, type NamedPlace } from '../record.ts'
 import type { DoorsAsked, HostPlace, ModuleOn, SessionDoor } from '../doorConfig.ts'
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { forAntigravity, skillText } from '../skills.ts'
@@ -2642,5 +2642,59 @@ describe('what the CLI says over OSC 7501 and its status line', () => {
     w.runs.heard(B, secret, 'PreInvocation')
     expect(w.runs.statused(B, secret, status({ asking: '1' }))).toBe(true)
     expect(run.state).toBe('needs-you')
+  })
+})
+
+describe('the project’s other folders (“Other folders sessions may work in”)', () => {
+  test('a session starts in the project’s folder, with its own folder and each other folder as an --add-dir, and nothing that widens what it may do', async () => {
+    const dir = project()
+    const base = project()
+    const one = project()
+    const two = project()
+    writeSettings(dir, { ...readSettings(dir), folders: [one, two] })
+    const w = world({ ...TOLD, plugins: true, configures: true, settings: true, configBase: base, fetch: (async () => { throw new Error('no') }) as unknown as typeof fetch })
+    const run = (await w.runs.open(ask(dir, null), new Watcher())) as Run
+    const pty = w.ptys[0]!
+    expect(pty.options.cwd).toBe(dir)
+    expect(pty.args).toEqual(['--add-dir', run.plugin!, '--settings', join(run.plugin!, 'kehikot', 'settings.json'), '--add-dir', one, '--add-dir', two])
+    expect(run.folders).toEqual([one, two])
+    expect(pty.args.join(' ')).not.toMatch(/dangerously|sandbox|--mode auto/)
+  })
+
+  test('none, when none are set; and a folder that is gone is left out', async () => {
+    const dir = project()
+    const gone = join(project(), 'gone')
+    writeSettings(dir, { ...readSettings(dir), folders: [gone] })
+    const w = world()
+    const run = (await w.runs.open(ask(dir, null), new Watcher())) as Run
+    expect(w.ptys[0]!.args).toEqual([])
+    expect(w.ptys[0]!.options.cwd).toBe(dir)
+    expect(run.folders).toBeUndefined()
+  })
+
+  test('a save that changes them tells the session’s viewers it applies on a restart, and a restart for that ends it to be resumed', async () => {
+    const dir = project()
+    const one = project()
+    const w = world()
+    w.records(dir, A)
+    const viewer = new Watcher()
+    await w.runs.open(ask(dir, A), viewer)
+    await settle()
+    expect(viewer.said[0]).toMatchObject({ opened: 'resumed', session: A })
+    expect(viewer.said[0]).not.toHaveProperty('folders')
+    writeSettings(dir, { ...readSettings(dir), folders: [one] })
+    w.runs.settingsSaved(dir)
+    expect(viewer.said.at(-1)).toEqual({ session: A, folders: 'changed' })
+    /* A viewer that arrives now is told on opening. */
+    const late = new Watcher()
+    await w.runs.open(ask(dir, A), late)
+    await settle()
+    expect(late.said[0]).toMatchObject({ opened: 'attached', folders: 'changed' })
+    /* Put back as it was: the same. */
+    writeSettings(dir, { ...readSettings(dir), folders: [] })
+    w.runs.settingsSaved(dir)
+    expect(viewer.said.at(-1)).toEqual({ session: A, folders: 'same' })
+    expect(w.runs.restartIn(A, 'folders')).toBe(true)
+    expect(w.logged.some((line) => line.includes('with the project’s other folders now'))).toBe(true)
   })
 })

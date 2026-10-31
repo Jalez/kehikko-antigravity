@@ -1,3 +1,7 @@
+import { realpathSync, statSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { isAbsolute, normalize, sep } from 'node:path'
+
 import { KEHIKOT_DIR, settingValueIssue, settingsDeclarationSchema, type SettingField } from 'kehikot-module-protocol'
 
 /**
@@ -14,6 +18,13 @@ import { KEHIKOT_DIR, settingValueIssue, settingsDeclarationSchema, type Setting
  * permissions the same `agy` would have in a terminal in that folder, and nothing on this page or
  * this door can widen them beyond the mode the person picks here, which the CLI also offers with
  * Shift+Tab.
+ *
+ * "Other folders sessions may work in" (`folders`) is the one that reaches past the project: each
+ * folder becomes one more `--add-dir`, so a session reads there as it reads in its project, without
+ * asking file by file (the CLI's permissions page: workspace files are allowed, files outside it
+ * ask). It is the person's own list, checked folder by folder (`folderIssue`): an existing
+ * directory, never `/`, the home folder or a folder holding it, a system folder, or where the CLI
+ * and the shell keep their secrets. Writes and commands there still ask as the mode says.
  */
 
 export const SETTINGS_FILE = `${KEHIKOT_DIR}/antigravity/settings.json`
@@ -62,6 +73,15 @@ export const SETTINGS: SettingField[] = settingsDeclarationSchema.parse([
     default: 'default',
     personOnly: true,
   },
+  {
+    key: 'folders',
+    label: 'Other folders sessions may work in',
+    description:
+      'Folders outside this project that sessions here may read without asking file by file, one absolute path a line. Edits and commands there still ask as the mode says. Applies when a session starts or restarts.',
+    type: 'list',
+    default: [],
+    personOnly: true,
+  },
 ])
 
 /** A project's settings for this module. */
@@ -70,9 +90,61 @@ export interface Settings {
   model: string
   effort: string
   mode: string
+  /** Absolute folders beside the project that its sessions are given as workspace folders (`--add-dir`). */
+  folders: string[]
 }
 
-export const DEFAULTS: Settings = { resumeCutOff: true, model: '', effort: 'default', mode: 'default' }
+export const DEFAULTS: Settings = { resumeCutOff: true, model: '', effort: 'default', mode: 'default', folders: [] }
+
+/** Folders that, with everything inside them, are the system's: never a session's workspace. */
+const SYSTEM = ['/System', '/Library', '/bin', '/sbin', '/usr', '/etc', '/dev', '/cores', '/Applications', '/private/etc', '/private/var/db', '/private/var/root']
+/** Folders that are too wide to hand over whole, though what is inside them may be fine. */
+const WIDE = ['/', '/Users', '/Volumes', '/private', '/private/var', '/var', '/tmp', '/private/tmp', '/opt', '/Network']
+/** Folders in the home folder, with everything inside them, that hold the CLI's account or the person's keys. */
+const SECRET = ['.gemini', '.ssh', '.gnupg', '.aws', '.config/gcloud', '.kube', '.docker', 'Library']
+
+const within = (path: string, folder: string): boolean => path === folder || path.startsWith(folder.endsWith(sep) ? folder : folder + sep)
+const homeFolder = (): string => normalize(process.env.HOME || homedir())
+
+/** Why a path cannot be one of the folders a session is given, judged by its spelling alone; null when it can. */
+function spelledIssue(path: string, home: string): string | null {
+  if (!path || !isAbsolute(path)) return `“${path.slice(0, 120)}” is not an absolute path: start it with /.`
+  const at = normalize(path).replace(/(.)\/+$/, '$1')
+  if (at === '/') return 'The whole disk cannot be given to a session.'
+  if (at === home) return 'Your whole home folder cannot be given to a session: name the folders in it.'
+  if (within(home, at)) return `${at} holds your home folder: name the folders you mean instead.`
+  if (WIDE.includes(at)) return `${at} is too wide to give a session: name the folders in it you mean.`
+  if (SYSTEM.some((one) => within(at, one))) return `${at} is a system folder; sessions are not given those.`
+  const secret = SECRET.find((one) => within(at, `${home}${sep}${one}`))
+  if (secret) return `${at} is where your ${secret === 'Library' ? 'apps keep their data' : 'keys or accounts are kept'}; sessions are not given it.`
+  return null
+}
+
+/**
+ * Why `path` cannot be one of the folders a session here is given, or null. With `exists`, also
+ * that it is a directory on this machine now, judged by both its spelling and where it leads (a
+ * link to a system folder is that system folder). Without, by its spelling alone: how a saved list
+ * is read, so that a folder that is away for a while is not dropped from the person's list.
+ */
+export function folderIssue(path: string, options: { exists?: boolean; home?: string } = {}): string | null {
+  const home = options.home ?? homeFolder()
+  const spelled = spelledIssue(path, home)
+  if (spelled || !options.exists) return spelled
+  let real: string
+  try {
+    real = realpathSync(path)
+    if (!statSync(real).isDirectory()) return `${path} is not a folder.`
+  } catch {
+    return `There is no folder at ${path}.`
+  }
+  let realHome = home
+  try {
+    realHome = realpathSync(home)
+  } catch {
+    /* No home folder on disk: judged by its spelling. */
+  }
+  return real === normalize(path) ? null : spelledIssue(real, realHome)
+}
 
 /** A model name as the CLI takes one: no quotes, nothing that is not a model's name ("Gemini 3.8 Flash (High)" has spaces and brackets). */
 const MODEL = /^[A-Za-z0-9][A-Za-z0-9 ._:/()-]{0,79}$/
@@ -84,6 +156,13 @@ export function settingIssue(key: string, value: unknown): string | null {
   const wrong = settingValueIssue(field, value)
   if (wrong) return `${field.label}: ${wrong}.`
   if (key === 'model' && value !== '' && !MODEL.test(String(value))) return 'A model is one name, as `agy models` lists it.'
+  if (key === 'folders') {
+    for (const one of value as string[]) {
+      if (!one.trim()) continue
+      const issue = folderIssue(one.trim(), { exists: true })
+      if (issue) return issue
+    }
+  }
   return null
 }
 
@@ -92,10 +171,36 @@ export function settingsOf(raw: unknown): Settings {
   const said = raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {}
   const out = { ...DEFAULTS }
   for (const key of Object.keys(DEFAULTS) as (keyof Settings)[]) {
+    if (key === 'folders') continue
     if (Object.hasOwn(said, key) && settingIssue(key, said[key]) === null) (out as Record<string, unknown>)[key] = said[key]
+  }
+  out.folders = foldersOf(said.folders)
+  return out
+}
+
+/** The folders off a file: trimmed, each one that could be one by its spelling, in order, once. A folder away for now stays listed. */
+function foldersOf(raw: unknown): string[] {
+  if (!Array.isArray(raw) || settingValueIssue({ type: 'list' }, raw) !== null) return []
+  const out: string[] = []
+  for (const one of raw as string[]) {
+    const at = normalize(one.trim()).replace(/(.)\/+$/, '$1')
+    if (one.trim() && folderIssue(one.trim()) === null && !out.includes(at)) out.push(at)
   }
   return out
 }
+
+/**
+ * The folders a session of `projectPath` is given beside its project, now: each listed folder that
+ * is a directory on this machine and passes `folderIssue`, never the project itself or a folder in
+ * it (already in its workspace). A folder away for now is left out, and given again when it is back.
+ */
+export function extraFolders(settings: Pick<Settings, 'folders'>, projectPath: string): string[] {
+  const project = normalize(projectPath)
+  return settings.folders.filter((one) => folderIssue(one, { exists: true }) === null && !within(one, project))
+}
+
+/** The CLI's arguments for those folders: one `--add-dir` each (`agy --help`: "Add a directory to the workspace (repeatable)"). */
+export const folderFlags = (folders: readonly string[]): string[] => folders.flatMap((one) => ['--add-dir', one])
 
 /**
  * The arguments a project's settings give a session started or resumed here: `--model`, `--effort`
