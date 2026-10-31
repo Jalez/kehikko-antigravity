@@ -16,7 +16,7 @@ import { isKehikkoKey, kehikkoOf, placeKey, sortedParts, type Kehikko } from './
 import { cutOffs, cutOffWords, midTurn, movedOn, type CutOff } from './cutoff.ts'
 import { PROGRAM, TELLS, headOf, home, learnSession, learnTitle, oscEvents, recordFile, sessionName, vouch, type Active, type ActiveStatus, type HookGroup, type Program, type Running, type State } from './program.ts'
 import { PLACE_TOKEN, assign, attach, born, byToken, follow, homeOf, markSession, markSessions, note, projectRoot, readPlaces, readSettings, recordedIds, sighted, tokenFor, type NamedPlace, type PlaceEntry, type Places, type SessionEntry } from './record.ts'
-import { contextScriptIn, removeKit, sessionKit, writeHooks, writeSettings } from './skills.ts'
+import { contextScriptIn, removeKit, sessionKit, sweepKits, writeHooks, writeSettings } from './skills.ts'
 import { extraFolders, folderFlags, sessionFlags } from './settings.ts'
 import { freshToken, hostDoors, hostPlace, type DoorsAsked, type HostPlace, type SessionDoor } from './doorConfig.ts'
 import { readPlaceKey } from './place.ts'
@@ -3096,6 +3096,14 @@ export function theRuns(log: (line: string) => void = () => {}): Runs {
     screen: headless,
   })
   held[HELD] = runs
+  /* The folders of sessions a process that stopped without ending them left behind: removed now (skills.ts). */
+  try {
+    const swept = sweepKits()
+    if (swept) log(`antigravity: removed ${swept} session folder${swept === 1 ? '' : 's'} a stopped process left behind`)
+  } catch {
+    /* Swept at the next start. */
+  }
+
   /* Stopping, however it is asked. `exit` covers Vite's own handling of
      SIGTERM; the signals are here for when nothing else is listening. */
   process.on('exit', () => runs.endAll())
