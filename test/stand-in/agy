@@ -1,0 +1,5 @@
+#!/bin/sh
+# A stand-in for `agy`, for tests: the script beside this one, run by the Bun the tests run on
+# (`KEHIKOT_TEST_BUN`, set in test/setup.ts). See agy.ts for what it imitates.
+here=$(cd "$(dirname "$0")" && pwd)
+exec "${KEHIKOT_TEST_BUN:-bun}" "$here/agy.ts" "$@"
