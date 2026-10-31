@@ -529,6 +529,8 @@ export function Sessions({
       return
     }
     if (heard.moved !== undefined) setMoves((all) => ({ ...all, [one.n]: heard.moved ?? null }))
+    if (heard.folders) setRefolded((all) => ({ ...all, [one.n]: heard.folders === 'changed' }))
+    else if (heard.opened) setRefolded((all) => ({ ...all, [one.n]: false }))
     if (heard.opened) setHows((all) => ({ ...all, [one.n]: { background: heard.background, copyOf: heard.copyOf, unchecked: heard.unchecked } }))
     if (heard.typed || heard.exists) setViews((all) => all.map((each) => (each.n === one.n && !each.kept ? { ...each, kept: true } : each)))
     const session = heard.session
@@ -656,6 +658,14 @@ export function Sessions({
     if (!viewed || !api.restart || working) return
     setDoorsNow(null)
     void api.restart(viewed, 'doors').catch(() => {})
+  }
+  /* The project's other folders changed since the session on screen started (settings.ts): they apply when it restarts. */
+  const [refolded, setRefolded] = useState<Record<number, boolean>>({})
+  const foldersLine = Boolean(view && refolded[view.n])
+  const restartForFolders = () => {
+    if (!viewed || !view || !api.restart || working) return
+    setRefolded((all) => ({ ...all, [view.n]: false }))
+    void api.restart(viewed, 'folders').catch(() => {})
   }
   const restartHere = () => {
     const session = view?.session
@@ -973,6 +983,23 @@ export function Sessions({
             disabled={working}
             title={working ? 'It is working. Restart it when it is idle.' : 'Ends this session and resumes it with the doors of this kehikko now'}
             onClick={restartForDoors}
+          >
+            Restart
+          </Button>
+        </div>
+      )}
+
+      {/* The person changed the project's other folders while this session ran: it has the old ones until it restarts. */}
+      {terminal && view && foldersLine && !ended && !cover && (
+        <div className="flex items-center justify-between gap-2 border-t px-2 py-1" role="status" data-folders>
+          <span className="text-muted-foreground min-w-0 text-[11px]">The folders sessions may work in changed. That applies when the session restarts.</span>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-6 shrink-0 px-2 text-xs"
+            disabled={working}
+            title={working ? 'It is working. Restart it when it is idle.' : 'Ends this session and resumes it with the folders set now'}
+            onClick={restartForFolders}
           >
             Restart
           </Button>

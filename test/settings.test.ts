@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -7,7 +7,7 @@ import { settingsDeclarationSchema } from 'kehikot-module-protocol'
 
 import { MANIFEST, TICKET, answer, hostCheck } from '../doors.ts'
 import { readSettings, writeSettings } from '../record.ts'
-import { DEFAULTS, SETTINGS, sessionFlags, settingIssue, settingsOf } from '../settings.ts'
+import { DEFAULTS, SETTINGS, extraFolders, folderFlags, folderIssue, sessionFlags, settingIssue, settingsOf } from '../settings.ts'
 
 /**
  * Antigravity's settings at its door for the host (protocol 2.15.0): "Resume conversations cut off by a
@@ -57,7 +57,7 @@ describe('the declaration', () => {
   test('is in the manifest, parses, is the person’s, and defaults to on as the file does', () => {
     expect(MANIFEST.declares.settings).toEqual(SETTINGS)
     expect(settingsDeclarationSchema.parse(SETTINGS)).toEqual(SETTINGS)
-    expect(SETTINGS.map((one) => one.key)).toEqual(['resumeCutOff', 'model', 'effort', 'mode'])
+    expect(SETTINGS.map((one) => one.key)).toEqual(['resumeCutOff', 'model', 'effort', 'mode', 'folders'])
     expect(SETTINGS[0]).toMatchObject({ key: 'resumeCutOff', type: 'boolean', default: true, scope: 'project', personOnly: true })
     expect(SETTINGS.every((one) => one.personOnly)).toBe(true)
     expect(readSettings(project)).toEqual(DEFAULTS)
@@ -143,5 +143,92 @@ describe('who may change it', () => {
     host(false)
     expect((await set({ key: 'resumeCutOff', value: false, by: 'person', pass: PASS })).outcome).toBe('refused')
     expect(readSettings(project).resumeCutOff).toBe(true)
+  })
+})
+
+describe('other folders sessions may work in', () => {
+  const HOME = process.env.HOME!
+  const folder = (name: string) => {
+    const at = join(realpathSync(mkdtempSync(join(tmpdir(), 'kehikko-antigravity-folder-'))), name)
+    mkdirSync(at, { recursive: true })
+    made.push(at)
+    return at
+  }
+
+  test('is declared as a list of the person’s, empty by default', () => {
+    expect(SETTINGS.find((one) => one.key === 'folders')).toMatchObject({ type: 'list', default: [], scope: 'project', personOnly: true, label: 'Other folders sessions may work in' })
+    expect(DEFAULTS.folders).toEqual([])
+  })
+
+  test('an existing folder is taken; the disk, the home folder, a folder holding it, system and secret folders are refused with a sentence', () => {
+    const ok = folder('repo')
+    expect(folderIssue(ok, { exists: true })).toBeNull()
+    expect(settingIssue('folders', [ok, ''])).toBeNull()
+    expect(folderIssue('/', { exists: true })).toContain('whole disk')
+    expect(folderIssue(HOME, { exists: true })).toContain('home folder')
+    expect(folderIssue(`${HOME}/`, { exists: true })).toContain('home folder')
+    expect(folderIssue(join(HOME, '..'), { exists: true })).toContain('holds your home folder')
+    expect(folderIssue('/Users', { exists: true })).not.toBeNull()
+    expect(folderIssue('/System/Library', { exists: true })).toContain('system folder')
+    expect(folderIssue('/usr/bin', { exists: true })).toContain('system folder')
+    expect(folderIssue('/etc', { exists: true })).toContain('system folder')
+    expect(folderIssue(join(HOME, '.gemini'), { exists: true })).toContain('sessions are not given it')
+    expect(folderIssue(join(HOME, '.ssh', 'keys'), { exists: true })).toContain('sessions are not given it')
+    expect(folderIssue('relative/path', { exists: true })).toContain('not an absolute path')
+    expect(folderIssue(join(ok, 'not-there'), { exists: true })).toContain('There is no folder')
+    const file = join(ok, 'a-file')
+    writeFileSync(file, 'x')
+    expect(folderIssue(file, { exists: true })).toContain('not a folder')
+    expect(settingIssue('folders', [ok, '/'])).toContain('whole disk')
+    expect(settingIssue('folders', 'not a list')).not.toBeNull()
+  })
+
+  test('a link is judged by where it leads', () => {
+    const at = folder('links')
+    const link = join(at, 'to-etc')
+    symlinkSync('/etc', link)
+    expect(folderIssue(link, { exists: true })).toContain('system folder')
+  })
+
+  test('a person saves it; it is kept per project, in the same file; an agent is refused; a bad folder is refused and nothing is written', async () => {
+    const one = folder('one')
+    const two = folder('two')
+    expect((await set({ key: 'folders', value: [one, `${two}/`, one] }, TICKET)).outcome).toBe('saved')
+    expect(readSettings(project).folders).toEqual([one, two])
+    expect(JSON.parse(readFileSync(file(), 'utf8')).folders).toEqual([one, two])
+    expect((await get()).values.folders).toEqual([one, two])
+    /* Another project has its own. */
+    const other = realpathSync(mkdtempSync(join(tmpdir(), 'kehikko-antigravity-settings-other-')))
+    made.push(other)
+    expect(readSettings(other).folders).toEqual([])
+    const refused = await set({ key: 'folders', value: [HOME] }, TICKET)
+    expect(refused.outcome).toBe('refused')
+    expect(refused.why).toContain('home folder')
+    expect(readSettings(project).folders).toEqual([one, two])
+    expect((await set({ key: 'folders', value: [] })).outcome).toBe('refused')
+    expect(readSettings(project).folders).toEqual([one, two])
+  })
+
+  test('a folder away for now stays in the list, and is not given to a session until it is back', () => {
+    const here = folder('here')
+    const away = join(here, '..', 'away')
+    expect(settingsOf({ folders: [here, away, '/', HOME, 'x', 7] }).folders).toEqual([])
+    expect(settingsOf({ folders: [here, away, '/', HOME, 'x'] }).folders).toEqual([here, away])
+    expect(extraFolders({ folders: [here, away] }, project)).toEqual([here])
+    mkdirSync(away)
+    made.push(away)
+    expect(extraFolders(settingsOf({ folders: [here, away] }), project)).toEqual([here, away])
+  })
+
+  test('the project itself, or a folder inside it, is not added again', () => {
+    const inside = join(project, 'sub')
+    mkdirSync(inside)
+    expect(extraFolders({ folders: [project, inside] }, project)).toEqual([])
+  })
+
+  test('each folder is one more --add-dir, and the other settings’ flags are unchanged', () => {
+    expect(folderFlags(['/a/one', '/b/two'])).toEqual(['--add-dir', '/a/one', '--add-dir', '/b/two'])
+    expect(folderFlags([])).toEqual([])
+    expect(sessionFlags({ ...DEFAULTS, folders: ['/a/one'] })).toEqual([])
   })
 })

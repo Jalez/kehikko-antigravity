@@ -67,6 +67,7 @@ The session's state also comes, without any configuration, from **OSC 7501**: th
 | Cut off by a restart | the record's `working` mark | **done**; transcript not read (`midTurn` finds nothing) |
 | Compact / Clear | `/compact` (documented); `/clear` (in the binary, *not measured*) | **done**, on a press, only at the prompt |
 | Settings | `--model`, `--effort low…max`, `--mode accept-edits|plan` (never `auto`, never `--dangerously-skip-permissions`, nothing about the sandbox) | **done** |
+| Other folders sessions may work in | one more `--add-dir <folder>` each, from the project's setting; the CLI allows reads in its workspace and asks for files outside it (docs, Permissions) | **done** — the person's list, checked: existing folders only, never `/`, the home folder or a folder holding it, system folders, or `~/.gemini`, `~/.ssh` and the like. Applies when a session starts or restarts; the page offers the restart |
 | `personEnv` | the protocol's `personEnv`, minus the `ANTIGRAVITY_*` variables of an enclosing process | **done** |
 | `holds: ['live-sessions']`, `shows: ['agent-session']`, `agentSays` | manifest | **done** |
 | Install helper | `curl -fsSL https://antigravity.google/cli/install.sh \| bash` (no admin; no brew/npm documented) | **done**, in a terminal the person watches |
@@ -115,7 +116,9 @@ this user's temporary directory under `kehikot-antigravity-<uid>/`, removed when
 - It never sends a prompt of anybody's. Its one sentence goes, once, to a conversation a restart cut
   off, behind the person's setting; and `/compact` or `/clear` on a person's press.
 - It never widens what the CLI may do: no `--dangerously-skip-permissions`, no `--mode auto`, no
-  sandbox setting.
+  sandbox setting. A session's workspace is its project's folder (its working directory), its own
+  folder, and the folders the person listed in "Other folders sessions may work in" — nothing else,
+  and no permission rule in its `--settings`.
 - It never writes `~/.gemini`. It never reads a hook's input beyond the conversation id, nor a status
   line beyond the fields listed in `status.sh`, nor a transcript's content.
 
