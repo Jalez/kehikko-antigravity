@@ -1,10 +1,10 @@
 ---
 name: kehikot-here
-description: "Assign this Antigravity conversation to the kehikko on screen in Kehikot. Only a person runs it, by typing /kehikot-here (add \"own\" to make it that kehikko's own conversation, or \"kehikko: <key>\" to name one)."
+description: "Assign this Antigravity conversation to the kehikko on screen in Kehikot. Only a person runs it, by typing /kehikot-here (add \"own\" to make it that kehikko's own conversation, or \"kehikko: <key>\" to name one, or \"off\" to disconnect it from every kehikko)."
 disable-model-invocation: true
 ---
 
-The person typed `/kehikot-here` to assign THIS conversation to the kehikko they have on screen in Kehikot. SAY is the words they wrote after `/kehikot-here` — `own`, `kehikko: <key>`, both, or nothing.
+The person typed `/kehikot-here` to assign THIS conversation to the kehikko they have on screen in Kehikot (or, with `off`, to disconnect it from every kehikko). SAY is the words they wrote after `/kehikot-here` — `own`, `kehikko: <key>`, both, `off`, or nothing.
 
 1. Run this one command with your terminal tool, once. It talks to Kehikot's Antigravity module at 127.0.0.1 on this computer; if the terminal sandbox keeps it from connecting, ask the person to let it run outside the sandbox. Put SAY in place of `SAY`, inside the single quotes; leave the quotes empty when they wrote nothing. `$ANTIGRAVITY_CONVERSATION_ID` is this conversation's own id, which the Antigravity CLI sets for the commands it runs, and `$PWD` is the folder the command runs in: do not replace either.
 
@@ -25,6 +25,6 @@ The person typed `/kehikot-here` to assign THIS conversation to the kehikko they
    - curl exit 6 or 7 with "Operation not permitted", or a sandbox refusal: "Kehikot: the sandbox kept this conversation from reaching Kehikot at {{origin}}. Type /kehikot-here again and allow the command to run outside the sandbox. [skill {{version}}]"
    - anything else: "Kehikot: the Antigravity module at {{origin}} did not assign this conversation (curl exit N, HTTP CODE: ERROR). Try /kehikot-here again in a moment; if it keeps failing, update Antigravity from Kehikot's Updates menu. [skill {{version}}]" — with curl's numbers and error message from the report.
 
-Never run either command again on your own, with another conversation id, folder or words: only the person assigns a conversation, by typing `/kehikot-here`.
+Never run either command again on your own, with another conversation id, folder or words: only the person assigns or disconnects a conversation, by typing `/kehikot-here`.
 
 Once this conversation has a place: when you finish researching something (investigating, comparing, auditing, reading up), say so with `tell_finished({ event: "research-complete", label })` on the Antigravity module's MCP server (kehikko-antigravity), and the person gets a "Research complete" notice.
