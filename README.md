@@ -64,7 +64,7 @@ The session's state also comes, without any configuration, from **OSC 7501**: th
 | Labels (first prompt from transcript) | status line `conversation_title` | **done** — transcript format not documented, never parsed |
 | Project's other conversations (Connect menu) | the CLI's list is not readable (records undocumented) | **adapted** — only conversations this module or `/kehikot-here` recorded |
 | Open in another process (lock files + `lsof`) | no lock; `ps` finds `agy --conversation <id>` processes, `lsof -d cwd` their folder | **partial** — a conversation opened with `-c` or `/resume` is not seen |
-| Cut off by a restart | the record's `working` mark | **done**; transcript not read (`midTurn` finds nothing) |
+| Cut off by a restart | the record's `working` mark, kept only for a session this module's process holds | **done**; transcript not read (`midTurn` finds nothing). The line goes when the person types here or the conversation goes to work more than 30 seconds after it |
 | Compact / Clear | `/compact` (documented); `/clear` (in the binary, *not measured*) | **done**, on a press, only at the prompt |
 | Settings | `--model`, `--effort low…max`, `--mode accept-edits|plan` (never `auto`, never `--dangerously-skip-permissions`, nothing about the sandbox) | **done** |
 | Other folders sessions may work in | one more `--add-dir <folder>` each, from the project's setting; the CLI allows reads in its workspace and asks for files outside it (docs, Permissions) | **done** — the person's list, checked: existing folders only, never `/`, the home folder or a folder holding it, system folders, or `~/.gemini`, `~/.ssh` and the like. Applies when a session starts or restarts; the page offers the restart |

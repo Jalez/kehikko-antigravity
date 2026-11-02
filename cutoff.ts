@@ -36,6 +36,11 @@ export function movedOn(_text: string, _after: number, _except: readonly string[
   return false
 }
 
+/** When the person last said something: not read from the record (see above), so never. Typing in this module's terminal and the conversation going to work say it instead (`engagedAfter` in live.ts). */
+export function lastPrompt(_text: string, _except: readonly string[] = []): number {
+  return Number.NEGATIVE_INFINITY
+}
+
 /** Whether the last turn was still under way when the record stopped growing: not read from the transcript (see above). */
 export function midTurn(_text: string): boolean {
   return false
