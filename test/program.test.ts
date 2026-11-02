@@ -174,13 +174,14 @@ describe('the hooks, in the session’s own folder', () => {
 })
 
 describe('OSC 7501, the terminal status the CLI writes', () => {
-  test('working, blocked and done are the session’s states; idle, clear and a child record are not', () => {
+  test('working, blocked and done are the session’s states; idle is where it is, never a state; clear and a child record are nothing', () => {
     expect(oscEvent('state=working:app=agy')).toBe('OscWorking')
     expect(oscEvent('state=blocked:kind=permission')).toBe('OscBlocked')
     expect(oscEvent('state=blocked:kind=question:msg=SGk=')).toBe('OscBlocked')
     expect(oscEvent('state=done')).toBe('OscDone')
     expect(oscEvent('state=error')).toBe('OscDone')
-    expect(oscEvent('state=idle')).toBeNull()
+    expect(oscEvent('state=idle')).toBe('OscIdle')
+    expect(PROGRAM.signal('OscIdle')).toBeNull()
     expect(oscEvent('state=clear')).toBeNull()
     expect(oscEvent('state=working:id=sub/1')).toBeNull()
     expect(PROGRAM.signal('OscBlocked')).toBe('needs-you')

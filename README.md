@@ -110,6 +110,37 @@ live in the OS keyring; none were read.
 - No meter for a session that is not running; no compaction history.
 - No subagent research items.
 
+## Verified against agy 1.4.12
+
+Checked on 2026-11-02 against the `agy` 1.4.12 in `~/.local/bin` (one Go binary; Antigravity's CLI
+source is not published). Only `agy --help` and `agy --version` were run; no session was started and
+no account used. The rest was read out of the binary's own strings.
+
+- **No command says what a running session is doing.** `agy agents` lists the agents a session can
+  use, not processes. Which process holds a conversation is still `ps`/`lsof` (`active` in
+  program.ts), which says no state. The `status` that list could set is never set by it. The
+  `status` it set, `null` on every watch, used to erase what the status line had said.
+- **OSC 7501 is real.** The binary holds `AGY_CLI_OSC7501`, `AGY_CLI_OSC7501_MESSAGES`, the query
+  `ESC ] 7501 ; ?` and the report prefix `ESC ] 7501 ; state=`, and its own release notes say: "Added
+  terminal status reporting over OSC 7501 … whether the CLI is working, waiting for your input,
+  done, or failed … `AGY_CLI_OSC7501=on` for a terminal that supports it but doesn't answer the check".
+  Whether it writes `state=idle` on its first draw could not be read from the binary: Program Status
+  Protocol has the word, and the module takes it when it comes (`OscIdle`).
+- **The status line is real.** The binary holds `statusLine`, `stack_with_default` and the fields
+  `status.sh` reads (`conversation_id`, `agent_state`, `tool_confirmation_pending`,
+  `used_percentage`, `conversation_title`). Its `agent_state` `idle` is a session at its prompt,
+  drawn before any turn.
+- **What was wrong.** Compact, Clear and the message waker took "at its prompt" from a turn's end, or
+  from the status line's `idle` — which the process list then erased on every watch. A session
+  resumed and left at its prompt was ready only between two watches, or not at all without a status
+  line. Now OSC 7501 `idle`, `working`, `blocked` and `done`, and the status line, each say where
+  the session is (`status` in live.ts), the process list never erases it, and a line that starts no
+  turn counts as back at the prompt after five quiet seconds. A status line still drawing the prompt
+  just after a line is not taken as the line done. The Inbox state is unchanged.
+
+Not verified here: that the CLI writes `state=idle` at its first draw, and everything marked
+*documented, not measured* above.
+
 ## Where its data lives
 
 `<project>/.kehikot/antigravity/places.json` (which session belongs to which place; ignored by git by
