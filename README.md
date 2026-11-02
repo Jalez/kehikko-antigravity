@@ -83,7 +83,7 @@ live in the OS keyring; none were read.
 
 - **A session per place**, resumed by id (`agy --conversation <id>`), filed under its place at its
   first turn and that kehikko's own when it had none.
-- **Disconnect and connect again** (View and Go menus), as in the Codex module.
+- **Disconnect and connect again** (View and Go menus), as in the Codex module. A disconnected conversation stays off every place until a person connects it again, and `/kehikot-here off` disconnects the conversation it is typed in.
 - **It knows where it is.** At a new conversation's start, and at the first model call of a process
   that has told it nothing yet, the protocol's `sessionNotes`, word for word what a Claude or Codex
   conversation on the same kehikko is told, plus its skills as `/name` entries; before later model
