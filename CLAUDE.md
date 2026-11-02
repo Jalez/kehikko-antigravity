@@ -14,6 +14,10 @@ and cannot do, and what is documented but not measured.
 - **A session's state is told, never read off the screen**: hooks (`tell.sh`), OSC 7501 reports on
   the pty (`oscEvents`), and the status line (`status.sh`). Each only says a state word and the
   conversation id; nothing a person wrote is read.
+  Where a session is (`run.status`, what Compact, Clear and the message waker wait on) is said by
+  OSC 7501 and the status line, `idle` before any turn included; the process list says none and
+  never erases it. `agy` has no command listing running sessions with a status (README, "Verified
+  against agy 1.4.12").
 - **The transcript's format is not documented.** Never parse it; only its existence and time.
 - **Project data** lives only in `<project>/.kehikot/antigravity/` (`record.ts`).
 - **Tests never reach the real machine or the real CLI**: `test/setup.ts` points HOME, the registry

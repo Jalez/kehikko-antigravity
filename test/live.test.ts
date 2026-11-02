@@ -2811,6 +2811,74 @@ describe('what the CLI says over OSC 7501 and its status line', () => {
   })
 })
 
+describe('at its prompt before any turn, as the CLI says it (verified against agy 1.4.12)', () => {
+  async function resumed(tells = true) {
+    const dir = project()
+    const w = world(tells ? { tells: true, port: 4999 } : { tells: false })
+    w.records(dir, A, 'tighten the methods')
+    const run = await w.runs.open(ask(dir, A), new Watcher())
+    if (!isRun(run)) throw new Error('not opened')
+    await settle()
+    run.token = freshToken()
+    return { w, run }
+  }
+  const status = (state: string, asking = '0') => new URLSearchParams({ thread: A, state, asking })
+
+  test('a conversation resumed and left at its prompt is ready at its OSC `idle` — and has no state to be noticed for', async () => {
+    const { w, run } = await resumed()
+    expect(w.runs.readiness(run)).toBe('It is not known yet whether Antigravity is waiting at its prompt.')
+    w.ptys[0]!.says('\x1b]7501;state=idle\x1b\\')
+    expect(run.state).toBeNull()
+    expect(w.runs.readiness(run)).toBeNull()
+    expect(w.runs.wakeSessions().find((one) => one.key === run.id)?.idle).toBe(true)
+    expect(w.runs.command(run, 'compact')).toBe(true)
+  })
+
+  test('its status line drawing `idle` before any turn makes it ready too, and the process list never erases that', async () => {
+    const { w, run } = await resumed()
+    expect(w.runs.statused(run.id, run.secret, status('idle'))).toBe(true)
+    expect(w.runs.readiness(run)).toBeNull()
+    await w.runs.watch()
+    expect(w.runs.readiness(run)).toBeNull()
+    w.later(1_000)
+    w.runs.statused(run.id, run.secret, status('idle', '1'))
+    expect(w.runs.readiness(run)).toBe('Antigravity is waiting for an answer on screen.')
+  })
+
+  test('without hooks or a status line (nowhere to report to), the terminal alone decides', async () => {
+    const { w, run } = await resumed(false)
+    expect(run.secret).toBeNull()
+    w.ptys[0]!.says('\x1b]7501;state=working\x07')
+    expect(w.runs.readiness(run)).toBe('Antigravity is working. Compact and Clear wait until it is back at its prompt.')
+    w.later(1_000)
+    w.ptys[0]!.says('\x1b]7501;state=done\x07')
+    expect(w.runs.readiness(run)).toBeNull()
+  })
+
+  test('a line that starts no turn is said as nothing: still at its prompt once it has been quiet a while', async () => {
+    const { w, run } = await resumed()
+    w.ptys[0]!.says('\x1b]7501;state=idle\x07')
+    w.later(1_000)
+    w.runs.type(run, '/help\r')
+    expect(w.runs.readiness(run)).toBe('Antigravity has not been seen at its prompt since a line was sent to it.')
+    w.later(5_500)
+    expect(w.runs.readiness(run)).toBeNull()
+  })
+
+  test('a status line still drawing the prompt just after a line is no sign it was taken; a turn that begins is', async () => {
+    const { w, run } = await resumed()
+    w.runs.statused(run.id, run.secret, status('idle'))
+    w.later(1_000)
+    w.runs.type(run, 'do the thing\r')
+    w.later(200)
+    w.runs.statused(run.id, run.secret, new URLSearchParams({ thread: A, state: 'idle', asking: '0', used: '3' }))
+    expect(w.runs.readiness(run)).toBe('Antigravity has not been seen at its prompt since a line was sent to it.')
+    w.ptys[0]!.says('\x1b]7501;state=working\x07')
+    w.later(60_000)
+    expect(w.runs.readiness(run)).toBe('Antigravity is working. Compact and Clear wait until it is back at its prompt.')
+  })
+})
+
 describe('the project’s other folders (“Other folders sessions may work in”)', () => {
   test('a session starts in the project’s folder, with its own folder and each other folder as an --add-dir, and nothing that widens what it may do', async () => {
     const dir = project()

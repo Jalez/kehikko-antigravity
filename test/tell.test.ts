@@ -210,12 +210,12 @@ describe('the stand-in program reports as the real one does', () => {
     const { done, events, oscs } = await session([])
     expect(done.code).toBe(0)
     expect(events).toEqual([])
-    expect(oscs).toEqual([])
+    expect(oscs).toEqual(['OscIdle'])
   })
 
   test('a permission in the middle: OSC 7501 says working, needs you, working again once it is answered, finished', async () => {
     const { oscs } = await session(['/ask', 'yes'])
-    expect(changes(oscs.map((one) => PROGRAM.signal(one)))).toEqual(['working', 'needs-you', 'working', 'finished'])
+    expect(changes(oscs.map((one) => PROGRAM.signal(one)))).toEqual([null, 'working', 'needs-you', 'working', 'finished'])
   })
 
   test('the CLI’s own question tool needs its person too, by the matcher on its name', async () => {

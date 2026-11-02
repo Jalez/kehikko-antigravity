@@ -602,8 +602,8 @@ export function hooksJson(groups: readonly HookGroup[]): string {
 /**
  * The event an OSC 7501 report stands for, or null. A report is `ESC ] 7501 ; key=value:… ST`
  * (the Program Status Protocol: `state` is idle, working, done, blocked, error or clear; `kind`, with
- * blocked, is permission, question or auth). `idle` is a session at its prompt, and `clear` takes a
- * record away: neither is a turn's state. An `id` names a child record (a subagent's): only the
+ * blocked, is permission, question or auth). `idle` is a session at its prompt (`OscIdle`: where it
+ * is, never a turn's state — live.ts), and `clear` takes a record away. An `id` names a child record (a subagent's): only the
  * root record is the session.
  */
 export function oscEvent(body: string): string | null {
@@ -615,6 +615,8 @@ export function oscEvent(body: string): string | null {
   }
   if (pairs.has('id')) return null
   switch (pairs.get('state')) {
+    case 'idle':
+      return 'OscIdle'
     case 'working':
       return 'OscWorking'
     case 'blocked':
