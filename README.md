@@ -97,6 +97,15 @@ live in the OS keyring; none were read.
   failed, each with its button as a run (and the install log as a toggle) — are declared as footer
   items (`src/view/footer.ts`) and the page draws none of its own. Any other app gets no footer and
   the page draws its own line and rows as before.
+  The footer leads with the conversation on screen — what it is doing (**● Working**, **◆ Needs
+  you**, *warn*, **○ Finished**), its title and what it is besides this module's own (*background*,
+  *copy*), which the View menu then leaves out of its option — so a container folded to its header
+  and footer still says what is going on. The strips the page drew above the terminal are the
+  footer's too: "No conversation is connected…" with **Copy /kehikot-here** beside it, a run the app
+  copies inside the person's click (`copy`, protocol 2.40.0; an app that does not copy keeps the
+  page's own bar, where the click is), and "Disconnected …" with **Dismiss**. The header keeps only
+  what sets the module up or starts something: the View menu, Make own, Connected, What this
+  conversation was told, Disconnect, Connect, and the settings toggles.
 - **`sessions`** and **`tell_finished`** on its MCP door (`kehikko-antigravity`).
 
 ## What does not work yet
