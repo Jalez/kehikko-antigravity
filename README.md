@@ -89,6 +89,12 @@ live in the OS keyring; none were read.
   conversation on the same kehikko is told, plus its skills as `/name` entries; before later model
   calls only what changed. *What this conversation was told* in the View menu shows it.
 - **The kehikko's MCP doors** and **skills**, for that one process.
+- **The skills you wrote for the kehikko.** Every session started on a kehikko gets the skills the
+  person wrote for it in the host, as `/name` skills in its own session folder (the same
+  `--add-dir` folder as the modules' skills, removed with the process), and its notes list them. One
+  added or changed while it runs is told at the next model call, with the host's `kehikko_skills`
+  tool to read it, since its folder is written once, at its start. A skill of the person's own by
+  the same name in `~/.gemini` wins, and that one is then said as not loaded.
 - **Working, needs you, finished** in the Inbox and the View menu, with a notice when nobody is looking.
 - **The context meter** under the session, **Compact** and **Clear** on a press.
 - **The footer.** In an app that draws module footers (protocol 2.38.0, `kehikot.footer`), the

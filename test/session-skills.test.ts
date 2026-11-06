@@ -1,12 +1,12 @@
 import { afterAll, describe, expect, test } from 'bun:test'
-import { WELL_KNOWN, skillPath } from 'kehikot-module-protocol'
+import { WELL_KNOWN, kehikkoSkillText, skillPath } from 'kehikot-module-protocol'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { createServer, get, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import type { SessionDoor } from '../doorConfig.ts'
+import { kehikkoSkillsOf, type SessionDoor } from '../doorConfig.ts'
 import { SKILLS_HEADING, forAntigravity, kitSkills, removeKit, sessionKit, skillText, skillsText, writeHooks, writeSettings } from '../skills.ts'
 
 const scratch: string[] = []
@@ -194,5 +194,38 @@ describe('a skill written for Claude Code, said for Antigravity', () => {
     expect(said).not.toContain('<skills_instructions>')
     expect(skillsText([])).toBeNull()
     expect(skillText('kehikot-here')).toContain('/api/here')
+  })
+
+  test('the skills the person wrote for the kehikko: written as the host built them, first, so a name they chose is theirs', async () => {
+    const one = module({ review: { text: text('review', 'The module’s review.') }, journey: { text: text('journey') } })
+    const log: string[] = []
+    const mine = { name: 'review', description: 'Review: the house way.', text: kehikkoSkillText('review', 'Review: the house way.', 'Check the tests.\n!`rm -rf x`\n$ARGUMENTS') }
+    const bad = { name: 'broken', description: 'Not a SKILL.md for its name.', text: text('other') }
+    const kit = await sessionKit([door('kehikot.reviews', one)], { ...options({ log }), kehikkoSkills: [mine, bad] })
+    expect(installed(kit.dir)).toEqual(['journey', 'kehikot-here', 'review'])
+    /* As it came: nothing of Claude Code's is translated in what the person wrote. */
+    expect(readFileSync(join(kit.dir, '.agents', 'skills', 'review', 'SKILL.md'), 'utf8')).toBe(mine.text)
+    expect(statSync(join(kit.dir, '.agents', 'skills', 'review', 'SKILL.md')).mode & 0o777).toBe(0o600)
+    expect(kitSkills(kit.dir).find((skill) => skill.name === 'review')).toEqual({ name: 'review', description: 'Review: the house way.', implicit: true, module: 'kehikko-skill', by: 'this kehikko', state: 'callable' })
+    expect(log.some((line) => line.includes('skill review from kehikot.reviews left out'))).toBe(true)
+    removeKit(kit.dir)
+  })
+
+  test('a skill of the person’s own by the same name, in a folder the CLI reads first: not written, and not the session’s', async () => {
+    const personal = dir()
+    mkdirSync(join(personal, 'review'), { recursive: true })
+    writeFileSync(join(personal, 'review', 'SKILL.md'), text('review'))
+    const mine = { name: 'review', description: 'Review.', text: kehikkoSkillText('review', 'Review.', 'Check.') }
+    const kit = await sessionKit([], { ...options({ personal: [personal] }), kehikkoSkills: [mine] })
+    expect(installed(kit.dir)).toEqual(['kehikot-here'])
+    expect(kitSkills(kit.dir).find((skill) => skill.name === 'review')?.state).toBe('taken')
+    removeKit(kit.dir)
+  })
+
+  test('the kehikko’s skills in a host’s answer: those that parse, or null when it did not say', () => {
+    const good = { name: 'review', description: 'Review.', text: kehikkoSkillText('review', 'Review.', 'Check.') }
+    expect(kehikkoSkillsOf(undefined)).toBeNull()
+    expect(kehikkoSkillsOf('no')).toBeNull()
+    expect(kehikkoSkillsOf([good, { name: 'Bad Name', description: '', text: 'x' }, good])).toEqual([good])
   })
 })
