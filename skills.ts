@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-import { WELL_KNOWN, missingNeeds, moduleSkillsSchema, needSaid, skillPath, skillTextIssue, type EverywhereSkill, type ModuleSkill, type ProvidingManifest } from 'kehikot-module-protocol'
+import { WELL_KNOWN, missingNeeds, moduleSkillsSchema, needSaid, skillPath, skillTextIssue, type EverywhereSkill, type KehikkoSkill, type ModuleSkill, type ProvidingManifest } from 'kehikot-module-protocol'
 import { originFor, preferred, registryDir } from 'kehikot-module-protocol/serve'
 
 import { configDirOf, mcpConfigJson, type SessionDoor } from './doorConfig.ts'
@@ -40,7 +40,10 @@ import { PLACE_TOKEN } from './record.ts'
  * every conversation (`everywhere`, protocol 2.23.0: Kehikot's own `kehikot-module` and every
  * module's, when the person's Settings say "Install every module's skills"). A kehikko-bound skill
  * (protocol 2.12.0, `needs`) only when every need is met by a module on the kehikko — judged on
- * their manifests (protocol 2.21.0).
+ * their manifests (protocol 2.21.0). First of all, the skills the person wrote for the session's
+ * kehikko (protocol 2.53.0, handed with its doors): written as the host built them, and a name they
+ * chose is theirs. One added after the session started is not in its folder; its notes say to read
+ * it with the host's `kehikko_skills` tool (context.ts passes `holds`).
  *
  * ## Written for Claude Code, given to Antigravity
  *
@@ -88,6 +91,10 @@ export function skillTemplate(name: string): string | null {
   if (!OFFERED.some((one) => one.name === name)) return null
   return readFileSync(join(PLUGIN_DIR, 'skills', name, 'SKILL.md'), 'utf8')
 }
+
+/** What a skill the person wrote for the session's kehikko is listed as offered by (`Listed`). */
+export const KEHIKKO_MODULE = 'kehikko-skill'
+const KEHIKKO_BY = 'this kehikko'
 
 const sha12 = (text: string): string => createHash('sha256').update(text).digest('hex').slice(0, 12)
 
@@ -215,6 +222,11 @@ export interface GatherOptions {
   present?: readonly string[]
   /** The skills the host keeps for every conversation (`everywhere`, protocol 2.23.0), or null when it did not say. */
   everywhere?: readonly EverywhereSkill[] | null
+  /**
+   * The skills the person wrote for the session's kehikko (protocol 2.53.0), as the host handed them:
+   * each written as it is, before any module's, so a name the person chose is theirs.
+   */
+  kehikkoSkills?: readonly KehikkoSkill[] | null
 }
 
 /** One skill of a session, as its context lists it. */
@@ -222,7 +234,7 @@ export interface Listed {
   name: string
   description: string
   implicit: boolean
-  /** The module that offers it. */
+  /** The module that offers it; `kehikko-skill` for a skill the person wrote for the kehikko. */
   module: string
   /** The module's name, for the person. */
   by: string
@@ -287,13 +299,19 @@ export async function sessionKit(doors: readonly SessionDoor[], options: GatherO
   const take = (name: string, one: { text: string; module: string; by: string }) => {
     const had = found.get(name)
     if (had) {
-      if (had.module !== one.module) log(`antigravity: skill ${name} from ${one.module} left out — another module already offers one by that name`)
+      if (had.module !== one.module) log(`antigravity: skill ${name} from ${one.module} left out — this kehikko or another module already has one by that name`)
       return
     }
     let skill = forAntigravity(one.text, name)
     /* This module's own skills are a person's to run, every one. */
     if (one.module === ID) skill = { ...skill, implicit: false }
     found.set(name, { skill, module: one.module, by: one.by })
+  }
+  /* The person's own skills for this kehikko first (protocol 2.53.0): written as the host built them —
+     plain front matter and the person's text, nothing of Claude Code's to translate. */
+  for (const one of options.kehikkoSkills ?? []) {
+    if (found.has(one.name) || skillTextIssue(one.text, one.name)) continue
+    found.set(one.name, { skill: { name: one.name, description: one.description, implicit: true, text: one.text }, module: KEHIKKO_MODULE, by: KEHIKKO_BY })
   }
   for (const one of skillDeclarations()) take(one.name, { text: skillText(one.name)!, module: ID, by: 'Antigravity' })
 

@@ -2425,6 +2425,7 @@ export class Runs {
     let doors: SessionDoor[] = []
     let present: string[] = []
     let everywhere: HostPlace['everywhere'] = null
+    let kehikkoSkills: HostPlace['kehikkoSkills'] = null
     if (able.configures) {
       token = (settled ? tokenFor(projectPath, settled, freshToken) : null) ?? freshToken()
       this.issue(token, { projectPath, projectId, place: asked.place })
@@ -2436,13 +2437,16 @@ export class Runs {
       const got = said?.doors ?? (await (this.options.doors ?? hostDoors)(door).catch(() => null))
       if (said?.modules) present = said.modules.map((one) => one.module)
       everywhere = said?.everywhere ?? null
+      /* The skills the person wrote for this kehikko (protocol 2.53.0), from the same answer; a test's
+         stand-in `doors` leaves them to its `place`, when it has one. */
+      kehikkoSkills = said ? (said.kehikkoSkills ?? null) : this.options.place ? ((await this.options.place(door).catch(() => null))?.kehikkoSkills ?? null) : null
       if (got?.length) doors = got
       else this.log('antigravity: no host gave this session its doors; it starts with the agent’s own configuration')
     }
     /* Its folder: the skills of every module on the kehikko, its doors, its hooks and its status
        line, for this one process, removed with it (skills.ts). Only for a copy that takes a folder
        for one process (`--add-dir`): that is how the session is given any of it. */
-    const kit = able.plugins ? await sessionKit(doors, { base: this.options.configBase, fetch: this.options.fetch, log: this.log, token, present, everywhere }).catch((error: unknown) => {
+    const kit = able.plugins ? await sessionKit(doors, { base: this.options.configBase, fetch: this.options.fetch, log: this.log, token, present, everywhere, kehikkoSkills }).catch((error: unknown) => {
       this.log(`antigravity: the session's folder could not be written — ${error instanceof Error ? error.message : String(error)}`)
       return null
     }) : null
