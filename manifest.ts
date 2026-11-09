@@ -94,7 +94,7 @@ export const MANIFEST: Manifest = manifestSchema.parse({
     as: 'kehikko-antigravity',
     about:
       'Which Antigravity sessions a person keeps for which place, and whether one is working, waiting or finished;'
-      + ' tell_finished says a finished turn was research. Starts and types nothing.',
+      + ' tell_finished says how a turn ends: done, a decision, or research.',
   },
   extensions: { emits: [NOTICES], consumes: [] },
   reacts: ['parts'],

@@ -61,3 +61,16 @@ describe('the list as the protocol takes it', () => {
     expect(h.sets()).toHaveLength(0)
   })
 })
+
+describe('how a turn ended, as the protocol takes it (protocol 2.55.0)', () => {
+  test('a decision with choices and a stall both parse, the question addressed to the session', () => {
+    const rows = activityRows([
+      run({ id: 'd', settled: 'd', state: 'finished', turnEnd: { state: 'attention', event: 'needs-decision', label: 'Which branch?', detail: 'asks you to decide: answer here or in the session', asks: { text: 'Which branch?', choices: ['main', 'release'] } } }),
+      run({ id: 'e', settled: 'e', state: 'finished', turnEnd: { state: 'attention', event: 'stalled', label: null, detail: 'stopped without finishing or asking', asks: null } }),
+    ])
+    expect(activityItemsSchema.safeParse(rows).success).toBe(true)
+    expect(rows.find((one) => one.id === 'd')!.question).toEqual({ text: 'Which branch?', choices: ['main', 'release'], to: { module: 'kehikot.antigravity', session: 'd' } })
+    expect(rows.find((one) => one.id === 'e')).toMatchObject({ state: 'attention', event: 'stalled' })
+    expect(rows.find((one) => one.id === 'e')!.question).toBeUndefined()
+  })
+})
