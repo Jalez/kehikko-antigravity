@@ -60,6 +60,10 @@ The session's state also comes, without any configuration, from **OSC 7501**: th
 | Interrupt | `Stop` with `terminationReason: USER_CANCELED`; OSC `done` | **done** |
 | Subagent start/stop (research by role) | none: no subagent hook events | **not possible** — research complete comes from `tell_finished` only |
 | `events` research-complete, sound `answer` | `tell_finished` tag, carried at the turn's end (`Stop` or OSC `done`) | **done** |
+| How a turn ended (`turnEnd`, protocol 2.55.0): done, needs-decision with the question on the Inbox item, research, else "Stopped without finishing" | `tell_finished({ event, label, choices })`, applied at the turn's end (`Stop` or OSC `done`, whichever first); the next `PreInvocation` after a finished turn withdraws it | **done** — a stall the person watched happen is the plain finished item |
+| Pause instead of stall (background tasks, scheduled wake-ups) | the CLI reports neither: no `background_tasks`/`session_crons` in its `Stop` payload | **not possible** — every undeclared end is a stall |
+| Refused action as an ask (`PermissionDenied`) | no hook event for a refused action (events are `SessionStart`, `PreInvocation`, `PostInvocation`, `PreToolUse`, `PostToolUse`, `Stop`) | **not possible** |
+| Send a stalled turn back once (a blocking `Stop` answer with a reason) | `Stop` takes `{"decision":"continue"}`, but no reason the agent reads is documented | **not done** |
 | Context meter (transcript `token_count`) | status line JSON: `context_window.used_percentage`, `context_window_size`, `current_usage`, `model.display_name`, `cost.total_usd` (estimate) | **done**, only while the session runs. No compaction count or point (not said) |
 | Labels (first prompt from transcript) | status line `conversation_title` | **done** — transcript format not documented, never parsed |
 | Project's other conversations (Connect menu) | the CLI's list is not readable (records undocumented) | **adapted** — only conversations this module or `/kehikot-here` recorded |
