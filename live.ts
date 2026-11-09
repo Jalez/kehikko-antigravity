@@ -17,7 +17,7 @@ import { isKehikkoKey, kehikkoOf, placeKey, sortedParts, type Kehikko } from './
 import { cutOffs, cutOffWords, lastPrompt, midTurn, type CutOff } from './cutoff.ts'
 import { PROGRAM, TELLS, headOf, home, learnSession, learnTitle, oscEvents, recordFile, sessionName, vouch, type Active, type ActiveStatus, type HookGroup, type Program, type Running, type State } from './program.ts'
 import { PLACE_TOKEN, assign, attach, born, byToken, follow, homeOf, isDetached, markSession, markSessions, note, projectRoot, readPlaces, readSettings, recordedIds, sighted, stayDetached, tokenFor, type NamedPlace, type PlaceEntry, type Places, type SessionEntry } from './record.ts'
-import { contextScriptIn, removeKit, sessionKit, writeHooks, writeSettings } from './skills.ts'
+import { contextScriptIn, removeKit, sessionKit, sweepKits, writeHooks, writeSettings } from './skills.ts'
 import { extraFolders, folderFlags, sessionFlags } from './settings.ts'
 import { freshToken, hostDoors, hostPlace, type DoorsAsked, type HostPlace, type SessionDoor } from './doorConfig.ts'
 import { readPlaceKey } from './place.ts'
@@ -3412,6 +3412,14 @@ export function theRuns(log: (line: string) => void = () => {}): Runs {
   /* A message to a session idle at its prompt wakes it (protocol 2.43.0): the protocol's rule, typed through `wake`. */
   /* Antigravity takes a line typed during a turn (protocol 2.48.0, docs/agent-messages.md): a working session is typed into at once. */
   messageDelivery({ module: 'kehikot.antigravity', queues: true, sessions: () => runs.deliverySessions(), type: (key, text) => runs.deliver(key, text), resume: (key, text) => runs.resumeFor(key, text), log }).start()
+  /* The folders of sessions a process that stopped without ending them left behind: removed now (skills.ts). */
+  try {
+    const swept = sweepKits()
+    if (swept) log(`antigravity: removed ${swept} session folder${swept === 1 ? '' : 's'} a stopped process left behind`)
+  } catch {
+    /* Swept at the next start. */
+  }
+
   /* Stopping, however it is asked. `exit` covers Vite's own handling of
      SIGTERM; the signals are here for when nothing else is listening. */
   process.on('exit', () => runs.endAll())
