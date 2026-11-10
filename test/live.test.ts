@@ -8,7 +8,7 @@ import { join } from 'node:path'
 import { listing, runOf, type Listing } from '../doors.ts'
 import { CLOSED, Runs, activityRows, endOf, sameProject, TELL_ENV, TICKET, fenced, headless, opening, quoted, readPlace, sayable, tellLine, type Follower, type RunsOptions, type Notice, type Opening, type Pty, type Run, type Stated, type Viewer } from '../live.ts'
 import { placeKey } from '../place.ts'
-import { HANDED_OFF, RESEARCH_LINE, SELF as CONTEXT_SELF, handedOff } from '../context.ts'
+import { HANDED_OFF, RESEARCH_LINE, SELF as CONTEXT_SELF, handedOff, type ToolAnswer } from '../context.ts'
 import { KEHIKKO_SKILLS_HEAD, NOTES_VERSION, UPDATED_HEAD, finishLine, kehikkoSkillText, sessionNotes, type AbsentModule, type KehikkoSkill, type PlacedGuard } from 'kehikot-module-protocol'
 import { freshToken } from '../doorConfig.ts'
 import { PROGRAM, TELLS, type Active, type Program, type Recorded } from '../program.ts'
@@ -2143,7 +2143,7 @@ describe('a session started here knows its place and its kehikko’s modules, an
   test('a shell command is rewritten to the guard’s command: only CommandLine is overwritten, allowed, and the agent is told why (protocol 2.61.0)', async () => {
     const dir = project()
     const { w, token } = await started(host([NOTES], [], [], [GUARD_QUEUE]), dir)
-    const got = await w.runs.guard(B, token, shell('cd x && bun test'), false)
+    const got = (await w.runs.guard(B, token, shell('cd x && bun test'), false)) as ToolAnswer | null
     expect(got).toEqual({
       decision: 'allow',
       reason: expect.stringContaining('Test runs (a module on this kehikko) ran this command through its own instead'),
@@ -2174,7 +2174,7 @@ describe('a session started here knows its place and its kehikko’s modules, an
   test('a deny guard refuses with the module’s reason, and wins over a rewrite', async () => {
     const dir = project()
     const { w, token } = await started(host([NOTES], [], [], [GUARD_QUEUE, GUARD_DEV]), dir)
-    const got = await w.runs.guard(B, token, shell('bun test && vite --port 5000'), false)
+    const got = (await w.runs.guard(B, token, shell('bun test && vite --port 5000'), false)) as ToolAnswer | null
     expect(got?.decision).toBe('deny')
     expect(got?.overwrite).toBeUndefined()
     expect(got?.reason).toContain('Dev servers')
@@ -2187,7 +2187,7 @@ describe('a session started here knows its place and its kehikko’s modules, an
     const h = host([NOTES], [], [], [GUARD_QUEUE])
     const { w, token } = await started(h, dir)
     h.asked.length = 0
-    expect((await w.runs.guard(B, token, shell('tsc'), false))?.overwrite).toEqual({ CommandLine: `KEHIKOT_DETACH=1 KEHIKOT_PLACE=${token} kehikot-queue run -- sh -c 'tsc'` })
+    expect(((await w.runs.guard(B, token, shell('tsc'), false)) as ToolAnswer | null)?.overwrite).toEqual({ CommandLine: `KEHIKOT_DETACH=1 KEHIKOT_PLACE=${token} kehikot-queue run -- sh -c 'tsc'` })
     expect(h.asked.map((one) => one.messages)).toEqual([false])
     /* Kept: the next command does not ask. */
     await w.runs.guard(B, token, shell('tsc'), false)
@@ -2204,13 +2204,53 @@ describe('a session started here knows its place and its kehikko’s modules, an
     expect(await w.runs.guard(B, token, shell('bun test'), false)).toBeNull()
   })
 
+  test('Kehikot away and nothing kept: the guards are not known — guard.sh asks again — never taken for "no guards"; once kept, they are used while it is away', async () => {
+    const dir = project()
+    const h = host([NOTES], [], [], [GUARD_QUEUE])
+    let down = false
+    const place = h.place
+    h.place = async (one: DoorsAsked) => {
+      if (down) throw new Error('ECONNREFUSED')
+      return place(one)
+    }
+    const { w, token } = await started(h, dir)
+    down = true
+    expect(await w.runs.guard(B, token, shell('bun test'), false)).toBe('unknown')
+    down = false
+    expect(((await w.runs.guard(B, token, shell('bun test'), false)) as ToolAnswer | null)?.overwrite).toHaveProperty('CommandLine')
+    /* Kept now: while the host is away again, the kept guards are used (stale or not), never "unknown". */
+    down = true
+    expect(((await w.runs.guard(B, token, shell('bun test'), false)) as ToolAnswer | null)?.overwrite).toHaveProperty('CommandLine')
+  })
+
+  test('its folder names Kehikot’s stable address for this module when the doors are written on it, and gives the guard time to wait for a restart', async () => {
+    const dir = project()
+    const h = host([NOTES])
+    const doors = h.doors
+    h.doors = async (one: DoorsAsked) => (await doors(one)).map((door) => ({ ...door, url: `http://127.0.0.1:4170/m/${door.module}/mcp?kehikot-place=${one.token}` }))
+    const w = world({ ...TOLD, fetch, configures: true, plugins: true, doors: h.doors, place: h.place, configBase: project() })
+    const run = (await w.runs.open(ask(dir, null, KEYED), new Watcher())) as Run
+    expect(readFileSync(join(run.plugin!, 'kehikot', 'stable'), 'utf8')).toBe('http://127.0.0.1:4170/m/kehikot.antigravity')
+    const hooks = JSON.parse(readFileSync(join(run.plugin!, '.agents', 'hooks.json'), 'utf8')) as { kehikot: { PreToolUse: { matcher: string; hooks: { command: string; timeout: number }[] }[] } }
+    const tool = hooks.kehikot.PreToolUse.find((one) => one.matcher === '^(run_command|invoke_subagent)$')!
+    expect(tool.hooks[0]!.timeout).toBeGreaterThanOrEqual(25)
+    w.runs.end(B)
+  })
+
+  test('doors written straight on the modules name no stable address, and none is in its folder', async () => {
+    const dir = project()
+    const { run } = await started(host([NOTES]), dir)
+    expect(existsSync(join(run.plugin!, 'kehikot', 'stable'))).toBe(false)
+    expect(existsSync(join(run.plugin!, 'kehikot', 'origin'))).toBe(true)
+  })
+
   test('subagents started with invoke_subagent have each brief opened with what a subagent is told — without messages being asked for', async () => {
     const dir = project()
     const queue: ModuleOn = { module: 'kehikot.queue', name: 'Test runs', summary: 'Runs.', says: 'Queue heavy test runs here.', door: 'queue', skills: [] }
     const h = host([NOTES, queue], [], [], [GUARD_QUEUE])
     const { w, token } = await started(h, dir)
     h.asked.length = 0
-    const got = await w.runs.guard(B, token, subagents('Find the flaky test.', 'Read the docs.'), false)
+    const got = (await w.runs.guard(B, token, subagents('Find the flaky test.', 'Read the docs.'), false)) as ToolAnswer | null
     expect(got?.decision).toBe('allow')
     expect(got?.reason).toBeUndefined()
     const specs = (got!.overwrite as { Subagents: { Prompt: string; Role: string; TypeName: string; Workspace: string }[] }).Subagents

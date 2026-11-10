@@ -8,7 +8,7 @@
 #
 # It is one of the hooks this module gives an Antigravity session in its own
 # folder (`.agents/hooks.json`; the folder is a workspace root of the session,
-# `--add-dir`), beside `kehikot/token`, `kehikot/origin` and
+# `--add-dir`), beside `kehikot/token`, `kehikot/stable`, `kehikot/origin` and
 # `kehikot/registration`, which this module wrote there 0600 for this one
 # session. What a SessionStart or PreInvocation hook prints as `injectSteps`
 # is added to the conversation; a `systemMessage` step "persists in the
@@ -56,11 +56,18 @@ ask() {
       --request POST "$1/api/context?event=$event&session=$session" 2>/dev/null
 }
 
-said=$(ask "$origin")
-asked=$?
-# No answer from there (nothing listening, or something else answering): the module may have moved
-# to another port since this session started, and its registration says where. An answer with
-# nothing in it is an answer.
+# Kehikot's stable address for this module first (`kehikot/stable`, the host's `/m/<this module>`, which
+# follows it to whatever port it bound), then the origin it served on, then what its registration says
+# now: the module may have moved to another port since this session started. An answer with nothing in
+# it is an answer.
+stable=$(/bin/cat "$here/stable" 2>/dev/null)
+said=
+asked=1
+[ -n "$stable" ] && said=$(ask "$stable") && asked=0
+if [ "$asked" -ne 0 ]; then
+  said=$(ask "$origin")
+  asked=$?
+fi
 if [ "$asked" -ne 0 ] && [ -f "$here/registration" ]; then
   reg=$(/bin/cat "$here/registration" 2>/dev/null)
   if [ -f "$reg" ]; then

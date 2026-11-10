@@ -18,7 +18,7 @@ import { isKehikkoKey, kehikkoOf, placeKey, sortedParts, type Kehikko } from './
 import { cutOffs, cutOffWords, lastPrompt, midTurn, type CutOff } from './cutoff.ts'
 import { PROGRAM, TELLS, headOf, home, learnSession, learnTitle, oscEvents, recordFile, sessionName, vouch, type Active, type ActiveStatus, type HookGroup, type Program, type Running, type State } from './program.ts'
 import { PLACE_TOKEN, assign, attach, born, byToken, follow, homeOf, isDetached, markSession, markSessions, note, projectRoot, readPlaces, readSettings, recordedIds, sighted, stayDetached, tokenFor, type NamedPlace, type PlaceEntry, type Places, type SessionEntry } from './record.ts'
-import { GUARD_MATCHER, contextScriptIn, guardScriptIn, removeKit, sessionKit, sweepKits, writeHooks, writeSettings } from './skills.ts'
+import { GUARD_MATCHER, GUARD_TIMEOUT, contextScriptIn, guardScriptIn, removeKit, sessionKit, sweepKits, writeHooks, writeSettings } from './skills.ts'
 import { extraFolders, folderFlags, sessionFlags } from './settings.ts'
 import { freshToken, hostDoors, hostPlace, type DoorsAsked, type HostPlace, type SessionDoor } from './doorConfig.ts'
 import { readPlaceKey } from './place.ts'
@@ -2254,7 +2254,7 @@ export class Runs {
    * shell command, what becomes of it under the guards of the modules placed on its kehikko; before a
    * subagent starts, its brief opened with what a subagent is told there. Null: run it as written.
    */
-  async guard(session: string, token: string | null, input: unknown, direct: boolean): Promise<ToolAnswer | null> {
+  async guard(session: string, token: string | null, input: unknown, direct: boolean): Promise<ToolAnswer | null | 'unknown'> {
     return guard(
       { session, token, input, direct },
       {
@@ -2562,7 +2562,7 @@ export class Runs {
       }
       /* Every shell command held to the guards of the modules placed on its kehikko, and every
          subagent's brief opened with what a subagent is told there (protocol 2.61.0, `guard.sh`). */
-      hooks.push({ event: 'PreToolUse', matcher: GUARD_MATCHER, commands: [{ command: `/bin/sh ${quoted(guardScriptIn(kit.dir))} PreToolUse`, timeout: 5 }] })
+      hooks.push({ event: 'PreToolUse', matcher: GUARD_MATCHER, commands: [{ command: `/bin/sh ${quoted(guardScriptIn(kit.dir))} PreToolUse`, timeout: GUARD_TIMEOUT }] })
     }
     let settingsFile: string | null = null
     if (kit) {

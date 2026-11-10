@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { spawn } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -190,10 +190,115 @@ describe('guard.sh, from a session’s own folder (protocol 2.61.0)', () => {
     expect(await ran(dir, 'PostToolUse', shellInput('tsc'), 'guard.sh')).toEqual({ code: 0, out: ALLOW })
     expect(await ran(dir, 'PreToolUse', '{"toolCall":{"name":"run_command"}}', 'guard.sh')).toEqual({ code: 0, out: ALLOW })
     expect(heard).toHaveLength(0)
+    /* No module at all: allowed after the wait, with the note (see "across a restart of Kehikot"). */
     const gone = await plugin({ origin: 'http://127.0.0.1:9' })
-    expect(await ran(gone, 'PreToolUse', shellInput('tsc'), 'guard.sh')).toEqual({ code: 0, out: ALLOW })
+    const ranGone = await ran(gone, 'PreToolUse', shellInput('tsc'), 'guard.sh', { KEHIKOT_GUARD_WAIT: '0' })
+    expect(ranGone.code).toBe(0)
+    expect(JSON.parse(ranGone.out).decision).toBe('allow')
     const away = await plugin({ origin: 'http://example.com' })
     expect(await ran(away, 'PreToolUse', shellInput('tsc'), 'guard.sh')).toEqual({ code: 0, out: ALLOW })
     expect(heard).toHaveLength(0)
+  })
+
+  /* Kehikot restarting while the session runs: the host and this module away, then back on new ports. */
+  describe('across a restart of Kehikot', () => {
+    /** A stand-in for this module (or the host in front of it) that can be away, say 503, or answer, and can move. */
+    async function standIn(first: { status: number; body: string } | 'away') {
+      let now = first
+      const asked: string[] = []
+      const one = createServer((request, response) => {
+        request.resume()
+        request.on('end', () => {
+          asked.push(request.url ?? '')
+          const said = now === 'away' ? { status: 503, body: 'not up' } : now
+          response.writeHead(said.status, { 'content-type': 'application/json' }).end(said.status === 204 ? undefined : said.body)
+        })
+      })
+      await new Promise<void>((done) => one.listen(0, '127.0.0.1', done))
+      const url = `http://127.0.0.1:${(one.address() as AddressInfo).port}`
+      return { url, asked, set: (next: typeof now) => (now = next), close: () => new Promise<void>((done) => one.close(() => done())) }
+    }
+    /** A port nothing answers on. */
+    async function deadUrl(): Promise<string> {
+      const one = createServer()
+      await new Promise<void>((done) => one.listen(0, '127.0.0.1', done))
+      const port = (one.address() as AddressInfo).port
+      await new Promise<void>((done) => one.close(() => done()))
+      return `http://127.0.0.1:${port}`
+    }
+
+    test('nobody answers: after the wait the call is allowed as written, and the agent is told it ran unguarded and how to queue', async () => {
+      const gone = await plugin({ origin: await deadUrl() })
+      const got = await ran(gone, 'PreToolUse', shellInput('tsc'), 'guard.sh', { KEHIKOT_GUARD_WAIT: '0' })
+      expect(got.code).toBe(0)
+      const note = JSON.parse(got.out)
+      expect(note.decision).toBe('allow')
+      expect(note).not.toHaveProperty('overwrite')
+      expect(note.reason).toContain('ran without the guards')
+      expect(note.reason).toContain('kehikot-queue run -- <command>')
+      expect(existsSync(join(gone, 'kehikot', 'away'))).toBe(true)
+    })
+
+    test('the module comes back on another port within the wait: its registration is followed and the guard applies', async () => {
+      const registration = join(scratch, 'registration-moving.json')
+      const old = await deadUrl()
+      writeFileSync(registration, JSON.stringify({ id: 'kehikot.antigravity', url: old }))
+      const dir = await plugin({ origin: old, registration })
+      const running = ran(dir, 'PreToolUse', shellInput('bun test'), 'guard.sh', { KEHIKOT_GUARD_WAIT: '10' })
+      await Bun.sleep(1500)
+      const back = await standIn({ status: 200, body: REWRITE })
+      writeFileSync(registration, JSON.stringify({ id: 'kehikot.antigravity', url: back.url }))
+      const got = await running
+      await back.close()
+      expect(got).toEqual({ code: 0, out: `${REWRITE}\n` })
+      expect(back.asked).toHaveLength(1)
+    }, 15_000)
+
+    test('the stable address is asked first; the host saying the module is not up yet is waited out, and the guard applies', async () => {
+      const host = await standIn('away')
+      const dir = await plugin({ origin: await deadUrl() })
+      writeFileSync(join(dir, 'kehikot', 'stable'), host.url)
+      const running = ran(dir, 'PreToolUse', shellInput('bun test'), 'guard.sh', { KEHIKOT_GUARD_WAIT: '10' })
+      await Bun.sleep(1500)
+      host.set({ status: 200, body: REWRITE })
+      const got = await running
+      await host.close()
+      expect(got).toEqual({ code: 0, out: `${REWRITE}\n` })
+      expect(host.asked.length).toBeGreaterThan(1)
+      expect(host.asked.every((one) => one === `/api/guard?session=${SESSION}&direct=0`)).toBe(true)
+    }, 15_000)
+
+    test('the module saying it cannot know the guards yet (503) is asked again, not taken for "no guards"', async () => {
+      const module = await standIn({ status: 503, body: '{"ok":false}' })
+      const dir = await plugin({ origin: module.url })
+      const running = ran(dir, 'PreToolUse', shellInput('bun test'), 'guard.sh', { KEHIKOT_GUARD_WAIT: '10' })
+      await Bun.sleep(1200)
+      module.set({ status: 200, body: DENY })
+      expect(await running).toEqual({ code: 0, out: `${DENY}\n` })
+      await module.close()
+    }, 15_000)
+
+    test('while Kehikot stays away, the next calls do not wait again; once it answers, they wait again next time', async () => {
+      const dir = await plugin({ origin: await deadUrl() })
+      await ran(dir, 'PreToolUse', shellInput('tsc'), 'guard.sh', { KEHIKOT_GUARD_WAIT: '1' })
+      const started = Date.now()
+      const again = await ran(dir, 'PreToolUse', shellInput('tsc'), 'guard.sh', { KEHIKOT_GUARD_WAIT: '10' })
+      expect(Date.now() - started).toBeLessThan(5000)
+      expect(again.out).toContain('ran without the guards')
+      const module = await standIn({ status: 204, body: '' })
+      writeFileSync(join(dir, 'kehikot', 'origin'), module.url)
+      expect(await ran(dir, 'PreToolUse', shellInput('tsc'), 'guard.sh')).toEqual({ code: 0, out: ALLOW })
+      await module.close()
+      expect(existsSync(join(dir, 'kehikot', 'away'))).toBe(false)
+    }, 15_000)
+
+    test('context.sh asks the stable address first', async () => {
+      const host = await standIn({ status: 200, body: ANSWER })
+      const dir = await plugin({ origin: await deadUrl() })
+      writeFileSync(join(dir, 'kehikot', 'stable'), host.url)
+      expect((await ran(dir, 'PreInvocation', hookInput('PreInvocation'))).out).toBe(`${ANSWER}\n`)
+      await host.close()
+      expect(host.asked).toEqual([`/api/context?event=PreInvocation&session=${SESSION}`])
+    })
   })
 })

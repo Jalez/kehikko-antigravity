@@ -454,10 +454,11 @@ export interface GuardNeeds extends Pick<ContextNeeds, 'program' | 'startedOf' |
  *    modules there say to agents, their guards and the kehikko's skills. Asked of the host WITHOUT
  *    messages: those are the session's, and a subagent's notes never count them delivered.
  *
- * Any doubt — no place, no host, a token this module did not give out — is null: the call runs as
- * written.
+ * Any doubt — no place, a token this module did not give out — is null: the call runs as written.
+ * A shell command of a session with a place whose host does not answer and whose guards were never
+ * kept is `UNKNOWN`: Kehikot is restarting, and guard.sh asks again.
  */
-export async function guard(asked: { session: string; token: string | null; input: unknown; direct?: boolean }, needs: GuardNeeds): Promise<ToolAnswer | null> {
+export async function guard(asked: { session: string; token: string | null; input: unknown; direct?: boolean }, needs: GuardNeeds): Promise<ToolAnswer | null | typeof UNKNOWN> {
   const { session, token } = asked
   if (!needs.program.isId(session) || !token || !PLACE_TOKEN.test(token)) return null
   const tool = toolCallOf(asked.input)?.name
@@ -469,11 +470,16 @@ export async function guard(asked: { session: string; token: string | null; inpu
   if (guards === null) {
     const where = whereNow(session, token, needs)
     const answer = where ? await needs.host({ projectPath: where.projectPath, projectId: where.started.projectId, token, kehikko: where.kehikko, messages: false }).catch(() => null) : null
+    /* The session has a place, the host did not answer (Kehikot restarting) and nothing was kept: not known, so not "no guards". guard.sh asks again. */
+    if (where && !answer && !kept) return UNKNOWN
     guards = answer ? (answer.guards ?? []) : (kept?.guards ?? [])
     needs.keepGuards(token, guards)
   }
   return guardAnswer(asked.input, guards, Boolean(asked.direct), token)
 }
+
+/** What `guard` answers when the session's guards cannot be known now: `/api/guard` says 503, and the hook asks again while Kehikot restarts. */
+export const UNKNOWN = 'unknown' as const
 
 async function subagentBrief(session: string, token: string, input: unknown, needs: GuardNeeds): Promise<ToolAnswer | null> {
   const where = whereNow(session, token, needs)
