@@ -782,6 +782,17 @@ export async function answer(
     return said ? { status: 200, body: null, raw: { bytes: JSON.stringify(said), type: 'application/json' } } : { status: 204, body: null }
   }
 
+  /* A session's own tool hook, through `guard.sh` (protocol 2.61.0, see `guard` in context.ts): before
+     each shell command, whether a module placed on its kehikko guards it, and before a subagent
+     starts, what its brief opens with. Carries the session's place token like `/api/context`; the
+     hook's input is the body, of which only the tool call is read and none is kept. The answer is
+     what the CLI reads from a PreToolUse hook, or nothing (204): the call runs as written. */
+  if (path === '/api/guard') {
+    if (method !== 'POST') return bad('this door takes POST', 405)
+    const said = await theRuns().guard((query.get('session') ?? '').slice(0, 64), ticket, body, query.get('direct') === '1')
+    return said ? { status: 200, body: null, raw: { bytes: JSON.stringify(said), type: 'application/json' } } : { status: 204, body: null }
+  }
+
   /* Every other door under /api, the read included: see "Reads carry the ticket too". */
   const refused = refuseTicket(ticket, TICKET)
   if (refused) return refused

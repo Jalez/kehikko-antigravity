@@ -1,7 +1,7 @@
 import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 
-import { researchLine, sessionNotes, type NotesPlace, type NotesTold } from 'kehikot-module-protocol'
+import { guardDecision, guardSays, researchLine, sessionNotes, subagentNotes, type NotesPlace, type NotesTold, type PlacedGuard } from 'kehikot-module-protocol'
 
 import type { DoorsAsked, HostPlace } from './doorConfig.ts'
 import { ID } from './manifest.ts'
@@ -80,6 +80,8 @@ export interface ContextNeeds {
   kitOf?(token: string): string | null
   /** Run something a moment later: the filing is tried again while Antigravity writes its record. Absent: not again. */
   later?(run: () => void, ms: number): void
+  /** Keep the guards the host handed for a token's session (protocol 2.61.0), for its tool hook (`guard`). Absent: not kept. */
+  keepGuards?(token: string, guards: PlacedGuard[]): void
 }
 
 export type ContextEvent = 'SessionStart' | 'PreInvocation'
@@ -271,6 +273,8 @@ export async function context(asked: { event: string; session: string; token: st
   const kehikko = place?.kehikko && 'key' in place.kehikko ? place.kehikko.key : null
   const answer = place ? await needs.host({ projectPath, projectId: started.projectId, token, kehikko }).catch(() => null) : null
   const hostDoor = answer?.doors.find((door) => door.module === 'kehikko')?.name ?? null
+  /* The guards of the modules placed there (protocol 2.61.0), for the tool hook: asked anyway, kept fresh before every model call. */
+  if (answer) needs.keepGuards?.(token, answer.guards ?? [])
 
   /* The words are the protocol's, the same for every agent module; this module only delivers them. */
   const file = needs.toldFile(token)
@@ -318,4 +322,158 @@ export async function context(asked: { event: string; session: string; token: st
   const said: Said = notes.kind === 'start' || !told?.said ? { start: { at, text }, changes: [] } : { start: told.said.start, changes: [...told.said.changes, { at, text }].slice(-SAID_CHANGES) }
   writeTold(file, { ...notes.told, said })
   return answerOf(text)
+}
+
+/* ------------------------------------------------------------------------ *
+ * Guards and subagents (protocol 2.61.0)
+ * ------------------------------------------------------------------------ */
+
+/** Where the conversation behind a token belongs now, as `context` reads it, without filing anything. Null when it belongs nowhere. */
+function whereNow(session: string, token: string, needs: Pick<ContextNeeds, 'startedOf'>): { projectPath: string; started: Started; place: NamedPlace; kehikko: string | null } | null {
+  const started = needs.startedOf(token)
+  if (!started) return null
+  const root = projectRoot(started.projectPath)
+  if (!root.ok) return null
+  const projectPath = root.value
+  const read = readPlaces(projectPath)
+  const places = read.ok ? read.value : null
+  const home = places ? homeOf(places, session) : null
+  const entry = places && Object.hasOwn(places.sessions, session) ? places.sessions[session] : undefined
+  const place = home && places ? named(home, places, started.place) : entry?.detached || entry?.ignored ? null : started.place
+  if (!place) return null
+  const kehikko = place.kehikko && 'key' in place.kehikko ? place.kehikko.key : null
+  return { projectPath, started, place, kehikko }
+}
+
+/** How long the guards kept for a session are used before the host is asked again. */
+export const GUARDS_FRESH_MS = 30_000
+
+/** The CLI's shell tool, and the tool a session starts subagents with (the hooks docs' tool list). */
+export const SHELL_TOOL = 'run_command'
+export const SUBAGENT_TOOL = 'invoke_subagent'
+
+/**
+ * What the PreToolUse hook prints (the CLI's hooks reference): a `decision` (required), the `reason`
+ * "shown to the agent or to you", and `overwrite`, "replacement arguments merged (shallow top-level
+ * merge) into `toolCall.args` before execution" — the CLI then prepends a notice naming the changed
+ * keys to the tool's result. `allow` "lets the call proceed, deferring to the next hook or default
+ * policy": the person's permission rules judge the command that will run, as they would any other.
+ */
+export interface ToolAnswer {
+  decision: 'allow' | 'deny'
+  reason?: string
+  overwrite?: Record<string, unknown>
+}
+
+/** The tool call in a PreToolUse hook's input (`toolCall: { name, args }`), or null. */
+function toolCallOf(input: unknown): { name: string; args: Record<string, unknown> } | null {
+  const call = input && typeof input === 'object' ? (input as { toolCall?: unknown }).toolCall : null
+  if (!call || typeof call !== 'object') return null
+  const { name, args } = call as { name?: unknown; args?: unknown }
+  if (typeof name !== 'string' || !args || typeof args !== 'object' || Array.isArray(args)) return null
+  return { name, args: args as Record<string, unknown> }
+}
+
+/**
+ * THE ANSWER to one shell call (`run_command`, whose command is `CommandLine`), from the hook's input
+ * and the session's guards: pure. A rewrite overwrites only `CommandLine`, with `allow`, and says
+ * what was done (`guardSays`) as the reason. A deny refuses with the module's words. Null: run it as
+ * written — another tool, no command, no guard, or `direct` (KEHIKOT_DIRECT in the session's
+ * environment).
+ */
+export function guardAnswer(input: unknown, guards: readonly PlacedGuard[], direct = false): ToolAnswer | null {
+  const call = toolCallOf(input)
+  if (!call || call.name !== SHELL_TOOL || typeof call.args.CommandLine !== 'string') return null
+  const decision = guardDecision(guards, call.args.CommandLine, { tool: 'shell', env: direct ? { KEHIKOT_DIRECT: '1' } : {} })
+  if (decision.action === 'pass') return null
+  if (decision.action === 'deny') return { decision: 'deny', reason: guardSays(decision) }
+  return { decision: 'allow', reason: guardSays(decision), overwrite: { CommandLine: decision.command } }
+}
+
+/** How a subagent's notes open (`subagentNotes`): a brief that already starts so is not told twice. */
+const SUBAGENT_OPENS = 'Kehikot: you are a subagent'
+
+/**
+ * THE ANSWER to one `invoke_subagent` call: its `Subagents` (each spec's `Prompt`, `Role`,
+ * `TypeName`, `Workspace`, the hooks docs' tool list) given back whole, each `Prompt` opened with
+ * `notes`. Pure. A subagent "does not inherit the parent's existing conversation history" (the
+ * subagents docs) and the CLI has no hook for a subagent's start, so its brief is the one place a
+ * module's line reaches it. Null: start them as written — another tool, no notes, nothing to open.
+ */
+export function subagentAnswer(input: unknown, notes: string | null): ToolAnswer | null {
+  const call = toolCallOf(input)
+  if (!call || call.name !== SUBAGENT_TOOL || !notes || !Array.isArray(call.args.Subagents)) return null
+  let changed = false
+  const subagents = call.args.Subagents.map((one: unknown) => {
+    if (!one || typeof one !== 'object' || Array.isArray(one)) return one
+    const spec = one as Record<string, unknown>
+    if (typeof spec.Prompt !== 'string' || spec.Prompt.startsWith(SUBAGENT_OPENS)) return one
+    changed = true
+    return { ...spec, Prompt: `${notes}\n\n---\n\n${spec.Prompt}` }
+  })
+  return changed ? { decision: 'allow', overwrite: { Subagents: subagents } } : null
+}
+
+export interface GuardNeeds extends Pick<ContextNeeds, 'program' | 'startedOf' | 'host' | 'kitOf'> {
+  /** The guards kept for a token's session, and when; null when none are kept. */
+  keptGuards(token: string): { at: number; guards: PlacedGuard[] } | null
+  keepGuards(token: string, guards: PlacedGuard[]): void
+  now?(): number
+}
+
+/**
+ * The session's tool hook (`guard.sh` → `POST /api/guard`), before a shell command or a subagent's
+ * start:
+ *
+ *  - `run_command`: what becomes of the command under the guards of the modules placed on its
+ *    kehikko. The guards kept from the last ask of the host are used while fresh (`GUARDS_FRESH_MS`),
+ *    else the host is asked again, without messages.
+ *  - `invoke_subagent`: each subagent's brief opened with `subagentNotes` — the place, what the
+ *    modules there say to agents, their guards and the kehikko's skills. Asked of the host WITHOUT
+ *    messages: those are the session's, and a subagent's notes never count them delivered.
+ *
+ * Any doubt — no place, no host, a token this module did not give out — is null: the call runs as
+ * written.
+ */
+export async function guard(asked: { session: string; token: string | null; input: unknown; direct?: boolean }, needs: GuardNeeds): Promise<ToolAnswer | null> {
+  const { session, token } = asked
+  if (!needs.program.isId(session) || !token || !PLACE_TOKEN.test(token)) return null
+  const tool = toolCallOf(asked.input)?.name
+  if (tool === SUBAGENT_TOOL) return subagentBrief(session, token, asked.input, needs)
+  if (tool !== SHELL_TOOL) return null
+  const now = needs.now?.() ?? Date.now()
+  const kept = needs.keptGuards(token)
+  let guards = kept && now - kept.at < GUARDS_FRESH_MS ? kept.guards : null
+  if (guards === null) {
+    const where = whereNow(session, token, needs)
+    const answer = where ? await needs.host({ projectPath: where.projectPath, projectId: where.started.projectId, token, kehikko: where.kehikko, messages: false }).catch(() => null) : null
+    guards = answer ? (answer.guards ?? []) : (kept?.guards ?? [])
+    needs.keepGuards(token, guards)
+  }
+  return guardAnswer(asked.input, guards, Boolean(asked.direct))
+}
+
+async function subagentBrief(session: string, token: string, input: unknown, needs: GuardNeeds): Promise<ToolAnswer | null> {
+  const where = whereNow(session, token, needs)
+  if (!where) return null
+  const { projectPath, started, place, kehikko } = where
+  const answer = await needs.host({ projectPath, projectId: started.projectId, token, kehikko, messages: false }).catch(() => null)
+  if (answer) needs.keepGuards(token, answer.guards ?? [])
+  const unread = Boolean(place.kehikko && !kehikko)
+  const kit = needs.kitOf?.(token) ?? null
+  const given = kit ? kitSkills(kit) : null
+  const holds = given?.length ? given.filter((one) => one.state === 'callable').map((one) => one.name) : null
+  const notes = subagentNotes(
+    {
+      place: notesPlace(projectPath, place),
+      modules: unread ? null : (answer?.modules ?? null),
+      absent: answer?.absent ?? null,
+      hostDoor: answer?.doors.find((door) => door.module === 'kehikko')?.name ?? null,
+      self: SELF,
+      holds,
+      kehikkoSkills: unread ? null : (answer?.kehikkoSkills ?? null),
+    },
+    answer?.guards ?? null,
+  )
+  return subagentAnswer(input, notes)
 }

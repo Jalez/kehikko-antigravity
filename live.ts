@@ -18,13 +18,14 @@ import { isKehikkoKey, kehikkoOf, placeKey, sortedParts, type Kehikko } from './
 import { cutOffs, cutOffWords, lastPrompt, midTurn, type CutOff } from './cutoff.ts'
 import { PROGRAM, TELLS, headOf, home, learnSession, learnTitle, oscEvents, recordFile, sessionName, vouch, type Active, type ActiveStatus, type HookGroup, type Program, type Running, type State } from './program.ts'
 import { PLACE_TOKEN, assign, attach, born, byToken, follow, homeOf, isDetached, markSession, markSessions, note, projectRoot, readPlaces, readSettings, recordedIds, sighted, stayDetached, tokenFor, type NamedPlace, type PlaceEntry, type Places, type SessionEntry } from './record.ts'
-import { contextScriptIn, removeKit, sessionKit, sweepKits, writeHooks, writeSettings } from './skills.ts'
+import { GUARD_MATCHER, contextScriptIn, guardScriptIn, removeKit, sessionKit, sweepKits, writeHooks, writeSettings } from './skills.ts'
 import { extraFolders, folderFlags, sessionFlags } from './settings.ts'
 import { freshToken, hostDoors, hostPlace, type DoorsAsked, type HostPlace, type SessionDoor } from './doorConfig.ts'
 import { readPlaceKey } from './place.ts'
 import { type Found, type Told } from './research.ts'
 import { ID } from './manifest.ts'
-import { context, toldWords, type HookAnswer, type Said, type Started } from './context.ts'
+import { context, guard, toldWords, type HookAnswer, type Said, type Started, type ToolAnswer } from './context.ts'
+import type { PlacedGuard } from 'kehikot-module-protocol'
 
 /**
  * The sessions that are running, and the socket a page watches one through.
@@ -1192,6 +1193,8 @@ export interface RunsOptions {
  * own with a stand-in pty; the server has exactly one (see `theRuns`).
  */
 export class Runs {
+  /** The guards the host last handed for each session token (protocol 2.61.0), for its tool hook. In memory: a restart asks again. */
+  private readonly guardsKept = new Map<string, { at: number; guards: PlacedGuard[] }>()
   readonly runs = new Map<string, Run>()
   private readonly program: Program
   private readonly grace: number
@@ -2234,6 +2237,33 @@ export class Runs {
         told: (projectPath, assigned) => this.told(projectPath, assigned),
         log: this.log,
         later: (run, ms) => setTimeout(run, ms).unref?.(),
+        keepGuards: (one, guards) => this.keepGuards(one, guards),
+      },
+    )
+  }
+
+  private keepGuards(token: string, guards: PlacedGuard[]): void {
+    this.guardsKept.delete(token)
+    this.guardsKept.set(token, { at: Date.now(), guards })
+    /* Bounded: the oldest tokens go first. */
+    while (this.guardsKept.size > 256) this.guardsKept.delete(this.guardsKept.keys().next().value!)
+  }
+
+  /**
+   * A session's own tool hook (`POST /api/guard`, see `guard.sh` and `guard` in context.ts): before a
+   * shell command, what becomes of it under the guards of the modules placed on its kehikko; before a
+   * subagent starts, its brief opened with what a subagent is told there. Null: run it as written.
+   */
+  async guard(session: string, token: string | null, input: unknown, direct: boolean): Promise<ToolAnswer | null> {
+    return guard(
+      { session, token, input, direct },
+      {
+        program: this.program,
+        startedOf: (one) => this.startedOf(one),
+        host: (asked) => (this.options.place ?? hostPlace)(asked),
+        kitOf: (one) => this.kitOf(one),
+        keptGuards: (one) => this.guardsKept.get(one) ?? null,
+        keepGuards: (one, guards) => this.keepGuards(one, guards),
       },
     )
   }
@@ -2529,6 +2559,9 @@ export class Runs {
         if (group) group.commands.push(command)
         else hooks.push({ event, commands: [command] })
       }
+      /* Every shell command held to the guards of the modules placed on its kehikko, and every
+         subagent's brief opened with what a subagent is told there (protocol 2.61.0, `guard.sh`). */
+      hooks.push({ event: 'PreToolUse', matcher: GUARD_MATCHER, commands: [{ command: `/bin/sh ${quoted(guardScriptIn(kit.dir))} PreToolUse`, timeout: 5 }] })
     }
     let settingsFile: string | null = null
     if (kit) {

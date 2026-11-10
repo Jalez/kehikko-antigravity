@@ -32,7 +32,7 @@ you start agy, plus any folder added with `--add-dir`", and at every workspace f
 
 | in the session's folder | what it is |
 |---|---|
-| `.agents/hooks.json` | this module's hooks: `tell.sh` (state) and `context.sh` (the session notes) |
+| `.agents/hooks.json` | this module's hooks: `tell.sh` (state), `context.sh` (the session notes) and `guard.sh` (guards and subagent briefs) |
 | `.agents/mcp_config.json` | the kehikko's MCP doors, each carrying the conversation's place token |
 | `.agents/skills/<name>/SKILL.md` | the session's skills, each a `/name` slash command |
 | `status.sh`, `kehikot/settings.json` | the status line, given with **`--settings <file>`** ("settings for this session only, never saved") |
@@ -59,6 +59,8 @@ The session's state also comes, without any configuration, from **OSC 7501**: th
 | Inbox rule (empty conversation never needs-you, `since` stable, `onOpened`) | unchanged (`needsYou`, `entered`, `hadTurn`) | **done** |
 | Interrupt | `Stop` with `terminationReason: USER_CANCELED`; OSC `done` | **done** |
 | Subagent start/stop (research by role) | none: no subagent hook events | **not possible** — research complete comes from `tell_finished` only |
+| Guards (protocol 2.61.0): a module's rule on shell commands held, not only told | `PreToolUse` with matcher `run_command` (input `toolCall.args.CommandLine`); the answer's `overwrite` is "merged (shallow top-level merge) into `toolCall.args` before execution", `decision: deny` "hard blocks execution immediately" with a `reason` "shown to the agent or to you" ([hooks docs](https://antigravity.google/docs/hooks)) | **done** — *documented, not measured*: a rewrite overwrites `CommandLine` with `decision: allow` (the person's permission rules still judge it) and says why as the `reason`; a deny refuses with the module's words. Whether a subagent's own tool calls run the session's hooks is not documented |
+| What a subagent is told at its start (`subagentNotes`, protocol 2.61.0) | no subagent hook; but `invoke_subagent` is a tool a `PreToolUse` matcher catches, its args are `Subagents` (`Prompt`, `Role`, `TypeName`, `Workspace`), and `overwrite` replaces them ([hooks docs](https://antigravity.google/docs/hooks)); a subagent "does not inherit the parent's existing conversation history" ([subagents docs](https://antigravity.google/docs/subagents)) | **done** — *documented, not measured*: each subagent's `Prompt` is opened with the protocol's subagent notes (place, what the modules say to agents, the guards, the kehikko's skills), the other fields kept |
 | `events` research-complete, sound `answer` | `tell_finished` tag, carried at the turn's end (`Stop` or OSC `done`) | **done** |
 | How a turn ended (`turnEnd`, protocol 2.55.0): done, needs-decision with the question on the Inbox item, research, else "Stopped without finishing" | `tell_finished({ event, label, choices })`, applied at the turn's end (`Stop` or OSC `done`, whichever first); the next `PreInvocation` after a finished turn withdraws it | **done** — a stall the person watched happen is the plain finished item |
 | Pause instead of stall (background tasks, scheduled wake-ups) | the CLI reports neither: no `background_tasks`/`session_crons` in its `Stop` payload | **not possible** — every undeclared end is a stall |
@@ -211,7 +213,9 @@ say it again, and `read_messages` keeps it as history.
   sandbox setting. A session's workspace is its project's folder (its working directory), its own
   folder, and the folders the person listed in "Other folders sessions may work in" — nothing else,
   and no permission rule in its `--settings`.
-- It never writes `~/.gemini`. It never reads a hook's input beyond the conversation id, nor a status
+- It never writes `~/.gemini`. It never reads a hook's input beyond the conversation id — except
+  `guard.sh`, which hands this module the tool call (a shell command, or the subagents about to start)
+  to decide on, keeping none of it — nor a status
   line beyond the fields listed in `status.sh`, nor a transcript's content.
 
 ## Layout
@@ -221,7 +225,7 @@ say it again, and `read_messages` keeps it as history.
 | `program.ts` | everything that knows it is `agy`: where it is, its flags, its hooks' format, OSC 7501, its processes |
 | `skills.ts` | the session's folder: skills (translated from Claude Code's), doors, hooks, status line |
 | `meter.ts` | the context meter, from the status line |
-| `tell.sh`, `context.sh`, `status.sh` | what a session's hooks and status line run |
+| `tell.sh`, `context.sh`, `guard.sh`, `status.sh` | what a session's hooks and status line run |
 | `settings.ts` | the settings, and the flags they become |
 | `doorConfig.ts` | the doors the host gives a session, as `mcp_config.json` |
 | `live.ts`, `record.ts`, `context.ts`, `here.ts`, `doors.ts`, `place.ts`, `input.ts`, `src/` | as in the Codex module |

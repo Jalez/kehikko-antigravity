@@ -549,7 +549,8 @@ function environment(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
  *     Stop             when the execution loop ends: the turn is over
  *
  * No event when a permission prompt is drawn, and none for a subagent: the first comes from OSC
- * 7501 (`blocked`, `kind=permission`), the second not at all.
+ * 7501 (`blocked`, `kind=permission`), the second not at all — though starting one is a tool
+ * (`invoke_subagent`), which `PreToolUse` sees (`guard.sh`, protocol 2.61.0).
  */
 export type HookEvent = 'SessionStart' | 'PreInvocation' | 'PostInvocation' | 'PreToolUse' | 'PostToolUse' | 'Stop'
 export const HOOK_EVENTS: readonly HookEvent[] = ['SessionStart', 'PreInvocation', 'PostInvocation', 'PreToolUse', 'PostToolUse', 'Stop']
