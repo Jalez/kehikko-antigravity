@@ -2263,6 +2263,7 @@ export class Runs {
         host: (asked) => (this.options.place ?? hostPlace)(asked),
         kitOf: (one) => this.kitOf(one),
         keptGuards: (one) => this.guardsKept.get(one) ?? null,
+        toldFile: (one) => this.toldFileOf(one),
         keepGuards: (one, guards) => this.keepGuards(one, guards),
       },
     )
