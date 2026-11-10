@@ -9,6 +9,7 @@ import { configDirOf, mcpConfigJson, type SessionDoor } from './doorConfig.ts'
 import { ID, PREFERRED_PORT } from './manifest.ts'
 import { home, hooksJson, type HookGroup } from './program.ts'
 import { PLACE_TOKEN } from './record.ts'
+import { stableAddress } from './restarted.ts'
 
 /**
  * The skills, doors and hooks an Antigravity session started here is given: all of it in one
@@ -26,7 +27,7 @@ import { PLACE_TOKEN } from './record.ts'
  *     .agents/hooks.json                 its hooks: tell.sh, context.sh and guard.sh (`writeHooks`)
  *     .agents/mcp_config.json            its Kehikot doors, each carrying its place token
  *     context.sh, guard.sh, status.sh    what the hooks and the status line run
- *     kehikot/token, origin, registration, skills.json, settings.json    what they read
+ *     kehikot/token, stable, origin, registration, skills.json, settings.json    what they read
  *
  * Nothing is installed where the person's other conversations would see it, and nothing in
  * `~/.gemini` is written. The folder is removed when the session ends (`removeKit`). A skill folder
@@ -429,7 +430,7 @@ export async function sessionKit(doors: readonly SessionDoor[], options: GatherO
   writeFileSync(join(dir, '.agents', 'mcp_config.json'), written.json, { mode: 0o600 })
   writeFileSync(join(dir, 'kehikot', 'skills.json'), JSON.stringify(skills), { mode: 0o600 })
   writeFileSync(join(dir, 'status.sh'), readFileSync(STATUS_SCRIPT), { mode: 0o700 })
-  if (options.token && PLACE_TOKEN.test(options.token)) writeContextHook(dir, options.token, options.registration ?? join(registryDir(), `${ID}.json`))
+  if (options.token && PLACE_TOKEN.test(options.token)) writeContextHook(dir, options.token, options.registration ?? join(registryDir(), `${ID}.json`), stableAddress(doors, ID))
   return { dir, skills, doors: written.names }
 }
 
@@ -504,13 +505,24 @@ export const contextScriptIn = (dir: string): string => join(dir, 'context.sh')
 /** Where a session's status line script is in its folder. */
 export const statusScriptIn = (dir: string): string => join(dir, 'status.sh')
 
-function writeContextHook(dir: string, token: string, registration: string): void {
+function writeContextHook(dir: string, token: string, registration: string, stable: string | null): void {
   writeFileSync(join(dir, 'context.sh'), readFileSync(CONTEXT_SCRIPT), { mode: 0o700 })
   writeFileSync(join(dir, 'guard.sh'), readFileSync(GUARD_SCRIPT), { mode: 0o700 })
   writeFileSync(join(dir, 'kehikot', 'token'), token, { mode: 0o600 })
   writeFileSync(join(dir, 'kehikot', 'origin'), served, { mode: 0o600 })
   writeFileSync(join(dir, 'kehikot', 'registration'), registration, { mode: 0o600 })
+  /* Kehikot's stable address for this module (restarted.ts): asked first by the hooks, so a module that came back on another port is found through the host. */
+  if (stable) writeFileSync(join(dir, 'kehikot', 'stable'), stable, { mode: 0o600 })
+  else rmSync(join(dir, 'kehikot', 'stable'), { force: true })
 }
+
+/**
+ * How long the CLI lets `guard.sh` run, in seconds (the hooks docs' `timeout`, default 30): it waits
+ * up to 20 for Kehikot to come back from a restart before letting a call through unguarded (see
+ * guard.sh). What the CLI does with a hook that runs out of time is not documented, so the wait fits
+ * well inside it.
+ */
+export const GUARD_TIMEOUT = 30
 
 /** A word for `sh`, in single quotes. */
 export const shellQuoted = (text: string): string => `'${text.replace(/'/g, `'\\''`)}'`
