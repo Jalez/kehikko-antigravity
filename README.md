@@ -93,11 +93,15 @@ live in the OS keyring; none were read.
   size: in a box too small for a terminal the session is started behind the tile all the same, and
   until it is spoken to the bar above it says it becomes the kehikko's own rather than that nothing is
   connected. `/kehikot-here` is only for a conversation started elsewhere.
-- **Disconnect and connect again** (View and Go menus), as in the Codex module. A disconnected conversation stays off every place until a person connects it again, and `/kehikot-here off` disconnects the conversation it is typed in.
+- **One conversation chooser**, as in the Codex module: the View menu holds one chooser labelled with the
+  conversation on screen ("Conversation: Fix login bug"), with this kehikko's own and the other
+  conversations here under their headings, each with what it is doing in words and when it was last
+  active, then "New conversation" and "Disconnect this conversation". Nothing from another place, and no
+  Go menu. Not confirmed, and no agent may press any of them. A disconnected conversation stays off every place until a person connects it again, and `/kehikot-here off` disconnects the conversation it is typed in.
 - **It knows where it is.** At a new conversation's start, and at the first model call of a process
   that has told it nothing yet, the protocol's `sessionNotes`, word for word what a Claude or Codex
   conversation on the same kehikko is told, plus its skills as `/name` entries; before later model
-  calls only what changed. *What this conversation was told* in the View menu shows it.
+  calls only what changed. *What this conversation was told* in the Run menu shows it.
 - **The kehikko's MCP doors** and **skills**, for that one process.
 - **The skills you wrote for the kehikko.** Every session started on a kehikko gets the skills the
   person wrote for it in the host, as `/name` skills in its own session folder (the same
@@ -105,7 +109,7 @@ live in the OS keyring; none were read.
   added or changed while it runs is told at the next model call, with the host's `kehikko_skills`
   tool to read it, since its folder is written once, at its start. A skill of the person's own by
   the same name in `~/.gemini` wins, and that one is then said as not loaded.
-- **Working, needs you, finished** in the Inbox and the View menu, with a notice when nobody is looking.
+- **Working, needs you, finished** in the Inbox and the conversation chooser, with a notice when nobody is looking.
 - **The context meter** under the session, **Compact** and **Clear** on a press.
 - **The footer.** In an app that draws module footers (protocol 2.38.0, `kehikot.footer`), the
   context meter, the model, **Compact** and **Clear** (Clear with the app's confirm, neither for
@@ -115,13 +119,13 @@ live in the OS keyring; none were read.
   the page draws its own line and rows as before.
   The footer leads with the conversation on screen — what it is doing (**● Working**, **◆ Needs
   you**, *warn*, **○ Finished**), its title and what it is besides this module's own (*background*,
-  *copy*), which the View menu then leaves out of its option — so a container folded to its header
+  *copy*), said in the chooser only as *(running elsewhere)* — so a container folded to its header
   and footer still says what is going on. The strips the page drew above the terminal are the
   footer's too: "No conversation is connected…" with **Copy /kehikot-here** beside it, a run the app
   copies inside the person's click (`copy`, protocol 2.40.0; an app that does not copy keeps the
   page's own bar, where the click is), and "Disconnected …" with **Dismiss**. The header keeps only
-  what sets the module up or starts something: the View menu, Make own, Connected, What this
-  conversation was told, Disconnect, Connect, and the settings toggles.
+  what sets the module up or starts something: the conversation chooser (with New conversation and
+  Disconnect this conversation in it), Make own, What this conversation was told, and the settings toggles.
 - **`sessions`** and **`tell_finished`** on its MCP door (`kehikko-antigravity`).
 
 ## What does not work yet
