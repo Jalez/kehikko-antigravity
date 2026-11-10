@@ -89,7 +89,10 @@ live in the OS keyring; none were read.
 ## What it does
 
 - **A session per place**, resumed by id (`agy --conversation <id>`), filed under its place at its
-  first turn and that kehikko's own when it had none.
+  first turn and that kehikko's own when it had none, with nothing typed. That holds at any container
+  size: in a box too small for a terminal the session is started behind the tile all the same, and
+  until it is spoken to the bar above it says it becomes the kehikko's own rather than that nothing is
+  connected. `/kehikot-here` is only for a conversation started elsewhere.
 - **Disconnect and connect again** (View and Go menus), as in the Codex module. A disconnected conversation stays off every place until a person connects it again, and `/kehikot-here off` disconnects the conversation it is typed in.
 - **It knows where it is.** At a new conversation's start, and at the first model call of a process
   that has told it nothing yet, the protocol's `sessionNotes`, word for word what a Claude or Codex
