@@ -23,9 +23,9 @@ import { PLACE_TOKEN } from './record.ts'
  * `--add-dir`, and holds:
  *
  *     .agents/skills/<name>/SKILL.md     the session's skills, each a `/name` slash command
- *     .agents/hooks.json                 its hooks: tell.sh and context.sh (`writeHooks`)
+ *     .agents/hooks.json                 its hooks: tell.sh, context.sh and guard.sh (`writeHooks`)
  *     .agents/mcp_config.json            its Kehikot doors, each carrying its place token
- *     context.sh, status.sh              what the hooks and the status line run
+ *     context.sh, guard.sh, status.sh    what the hooks and the status line run
  *     kehikot/token, origin, registration, skills.json, settings.json    what they read
  *
  * Nothing is installed where the person's other conversations would see it, and nothing in
@@ -489,6 +489,15 @@ export const TELL_SCRIPT = join(import.meta.dirname, 'tell.sh')
 /** The script a session's status line runs (see `status.sh`), copied into its folder: it keeps what it last said beside itself. */
 export const STATUS_SCRIPT = join(import.meta.dirname, 'status.sh')
 
+/** The script a session's tool hook runs, copied into its folder (see `guard.sh`, protocol 2.61.0). */
+export const GUARD_SCRIPT = join(import.meta.dirname, 'guard.sh')
+
+/** The tools that hook is run before (a regular expression, the hooks docs' `matcher`): the shell, and starting subagents. */
+export const GUARD_MATCHER = '^(run_command|invoke_subagent)$'
+
+/** Where a session's tool hook is in its folder. */
+export const guardScriptIn = (dir: string): string => join(dir, 'guard.sh')
+
 /** Where a session's context hook is in its folder. */
 export const contextScriptIn = (dir: string): string => join(dir, 'context.sh')
 
@@ -497,6 +506,7 @@ export const statusScriptIn = (dir: string): string => join(dir, 'status.sh')
 
 function writeContextHook(dir: string, token: string, registration: string): void {
   writeFileSync(join(dir, 'context.sh'), readFileSync(CONTEXT_SCRIPT), { mode: 0o700 })
+  writeFileSync(join(dir, 'guard.sh'), readFileSync(GUARD_SCRIPT), { mode: 0o700 })
   writeFileSync(join(dir, 'kehikot', 'token'), token, { mode: 0o600 })
   writeFileSync(join(dir, 'kehikot', 'origin'), served, { mode: 0o600 })
   writeFileSync(join(dir, 'kehikot', 'registration'), registration, { mode: 0o600 })

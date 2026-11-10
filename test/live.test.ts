@@ -9,7 +9,7 @@ import { listing, runOf, type Listing } from '../doors.ts'
 import { CLOSED, Runs, activityRows, endOf, sameProject, TELL_ENV, TICKET, fenced, headless, opening, quoted, readPlace, sayable, tellLine, type Follower, type RunsOptions, type Notice, type Opening, type Pty, type Run, type Stated, type Viewer } from '../live.ts'
 import { placeKey } from '../place.ts'
 import { RESEARCH_LINE, SELF as CONTEXT_SELF } from '../context.ts'
-import { KEHIKKO_SKILLS_HEAD, NOTES_VERSION, UPDATED_HEAD, finishLine, kehikkoSkillText, sessionNotes, type AbsentModule, type KehikkoSkill } from 'kehikot-module-protocol'
+import { KEHIKKO_SKILLS_HEAD, NOTES_VERSION, UPDATED_HEAD, finishLine, kehikkoSkillText, sessionNotes, type AbsentModule, type KehikkoSkill, type PlacedGuard } from 'kehikot-module-protocol'
 import { freshToken } from '../doorConfig.ts'
 import { PROGRAM, TELLS, type Active, type Program, type Recorded } from '../program.ts'
 import { assign, detach, ignore, readPlaces, readSettings, sessionsAt, tokenFor, writeSettings, type NamedPlace } from '../record.ts'
@@ -943,6 +943,10 @@ describe('asking the program to say what it is doing', () => {
     const text = JSON.stringify(hooks)
     for (const one of TELLS) expect(text).toContain(JSON.stringify(tellLine(one.says)).slice(1, -1))
     expect(text).toContain('context.sh')
+    /* The tool hook (protocol 2.61.0): before the shell and before subagents start, from its own folder. */
+    const tool = (hooks.kehikot.PreToolUse as { matcher: string; hooks: { command: string }[] }[]).find((one) => one.matcher === '^(run_command|invoke_subagent)$')
+    expect(tool?.hooks.map((one) => one.command)).toEqual([`/bin/sh '${join(kit, 'guard.sh')}' PreToolUse`])
+    expect(readFileSync(join(kit, 'guard.sh'), 'utf8')).toBe(readFileSync(join(import.meta.dir, '..', 'guard.sh'), 'utf8'))
     /* Never anything that widens what the CLI may do. */
     expect(pty.args.join(' ')).not.toMatch(/dangerously|sandbox|--mode auto|permission/)
 
@@ -2098,17 +2102,18 @@ describe('a session started here knows its place and its kehikko’s modules, an
   const TERMINAL: ModuleOn = { module: 'kehikot.terminal', name: 'Terminal', summary: 'A shell.', door: null, skills: [] }
   const SELF: ModuleOn = { module: 'kehikot.antigravity', name: 'Antigravity', summary: 'This.', door: 'kehikko-antigravity', skills: ['kehikot-here'] }
   /** A host whose kehikko holds `on`, changed by a test as a person would. */
-  const host = (on: ModuleOn[], asked: DoorsAsked[] = [], absent: AbsentModule[] = []) => ({
+  const host = (on: ModuleOn[], asked: DoorsAsked[] = [], absent: AbsentModule[] = [], guards?: PlacedGuard[]) => ({
     on,
     asked,
     absent,
+    guards,
     doors: async (one: DoorsAsked): Promise<SessionDoor[]> => [
       { module: 'kehikko', name: 'kehikko', url: `http://127.0.0.1:4180/mcp?kehikot-place=${one.token}`, transport: 'http' },
       { module: 'kehikot.notes', name: 'notes', url: `http://127.0.0.1:4600/mcp?kehikot-place=${one.token}`, transport: 'http' },
     ],
     place: async (one: DoorsAsked): Promise<HostPlace | null> => {
       asked.push(one)
-      return { doors: [{ module: 'kehikko', name: 'kehikko', url: 'http://127.0.0.1:4180/mcp', transport: 'http' }], modules: [...on], absent: [...absent], everywhere: null, messages: null, messagesMore: 0 }
+      return { doors: [{ module: 'kehikko', name: 'kehikko', url: 'http://127.0.0.1:4180/mcp', transport: 'http' }], modules: [...on], absent: [...absent], everywhere: null, messages: null, messagesMore: 0, ...(guards ? { guards: [...guards] } : {}) }
     },
   })
   const started = async (h: ReturnType<typeof host>, dir: string, place: NamedPlace = KEYED) => {
@@ -2124,6 +2129,92 @@ describe('a session started here knows its place and its kehikko’s modules, an
   const said = (answer: Awaited<ReturnType<Runs['context']>>) => answer?.injectSteps[0].systemMessage.systemMessage ?? null
   /* The modules' skills are not what is tested here: every one of them answers that it has none. */
   const fetch = (async () => new Response('', { status: 404 })) as unknown as typeof globalThis.fetch
+
+  const GUARD_QUEUE: PlacedGuard = {
+    module: 'kehikot.queue',
+    name: 'Test runs',
+    guard: { id: 'heavy', tool: 'shell', match: { commands: ['tsc', 'bun test'], scripts: ['test'] }, action: 'rewrite', rewrite: 'kehikot-queue run -- sh -c {command}', why: 'Heavy runs go through the queue.' },
+  }
+  const GUARD_DEV: PlacedGuard = { module: 'kehikot.dev', name: 'Dev servers', guard: { id: 'no-vite', tool: 'shell', match: { commands: ['vite'] }, action: 'deny', why: 'Ask Dev servers for a lease.' } }
+  /** A PreToolUse hook's input for a shell command, as the CLI's hooks reference spells it. */
+  const shell = (command: string, session = B) => ({ conversationId: session, workspacePaths: ['/p'], transcriptPath: '/x', modelName: 'auto', lastUserInput: 'go', stepIdx: 3, toolCall: { name: 'run_command', args: { CommandLine: command, Cwd: '/p', WaitMsBeforeAsync: 5000 } } })
+  const subagents = (...prompts: string[]) => ({ conversationId: B, stepIdx: 4, toolCall: { name: 'invoke_subagent', args: { Subagents: prompts.map((Prompt, i) => ({ Prompt, Role: `r${i}`, TypeName: 'general', Workspace: 'inherit' })) } } })
+
+  test('a shell command is rewritten to the guard’s command: only CommandLine is overwritten, allowed, and the agent is told why (protocol 2.61.0)', async () => {
+    const dir = project()
+    const { w, token } = await started(host([NOTES], [], [], [GUARD_QUEUE]), dir)
+    const got = await w.runs.guard(B, token, shell('cd x && bun test'), false)
+    expect(got).toEqual({
+      decision: 'allow',
+      reason: expect.stringContaining('Test runs (a module on this kehikko) ran this command through its own instead'),
+      overwrite: { CommandLine: `kehikot-queue run -- sh -c 'cd x && bun test'` },
+    })
+    /* What is not guarded runs as written: another command, the escape, another tool, a token not given out. */
+    expect(await w.runs.guard(B, token, shell('git status'), false)).toBeNull()
+    expect(await w.runs.guard(B, token, shell('KEHIKOT_DIRECT=1 bun test'), false)).toBeNull()
+    expect(await w.runs.guard(B, token, shell('bun test'), true)).toBeNull()
+    expect(await w.runs.guard(B, token, { ...shell('bun test'), toolCall: { name: 'view_file', args: { CommandLine: 'bun test' } } }, false)).toBeNull()
+    expect(await w.runs.guard(B, token, { conversationId: B }, false)).toBeNull()
+    expect(await w.runs.guard(B, 'not-a-token', shell('bun test'), false)).toBeNull()
+    expect(await w.runs.guard('nope', token, shell('bun test'), false)).toBeNull()
+  })
+
+  test('a deny guard refuses with the module’s reason, and wins over a rewrite', async () => {
+    const dir = project()
+    const { w, token } = await started(host([NOTES], [], [], [GUARD_QUEUE, GUARD_DEV]), dir)
+    const got = await w.runs.guard(B, token, shell('bun test && vite --port 5000'), false)
+    expect(got?.decision).toBe('deny')
+    expect(got?.overwrite).toBeUndefined()
+    expect(got?.reason).toContain('Dev servers')
+    expect(got?.reason).toContain('"Ask Dev servers for a lease."')
+    expect(got?.reason).toContain('KEHIKOT_DIRECT=1')
+  })
+
+  test('the guards are the host’s for the session’s kehikko, kept a while and asked again without messages: a module taken off guards nothing', async () => {
+    const dir = project()
+    const h = host([NOTES], [], [], [GUARD_QUEUE])
+    const { w, token } = await started(h, dir)
+    h.asked.length = 0
+    expect((await w.runs.guard(B, token, shell('tsc'), false))?.overwrite).toEqual({ CommandLine: `kehikot-queue run -- sh -c 'tsc'` })
+    expect(h.asked.map((one) => one.messages)).toEqual([false])
+    /* Kept: the next command does not ask. */
+    await w.runs.guard(B, token, shell('tsc'), false)
+    expect(h.asked).toHaveLength(1)
+    /* The module is taken off the kehikko; the next model call asks the host, and the guard is gone. */
+    h.guards!.length = 0
+    await w.runs.context('PreInvocation', B, token)
+    expect(await w.runs.guard(B, token, shell('tsc'), false)).toBeNull()
+  })
+
+  test('a host too old to say guards nothing', async () => {
+    const dir = project()
+    const { w, token } = await started(host([NOTES]), dir)
+    expect(await w.runs.guard(B, token, shell('bun test'), false)).toBeNull()
+  })
+
+  test('subagents started with invoke_subagent have each brief opened with what a subagent is told — without messages being asked for', async () => {
+    const dir = project()
+    const queue: ModuleOn = { module: 'kehikot.queue', name: 'Test runs', summary: 'Runs.', says: 'Queue heavy test runs here.', door: 'queue', skills: [] }
+    const h = host([NOTES, queue], [], [], [GUARD_QUEUE])
+    const { w, token } = await started(h, dir)
+    h.asked.length = 0
+    const got = await w.runs.guard(B, token, subagents('Find the flaky test.', 'Read the docs.'), false)
+    expect(got?.decision).toBe('allow')
+    expect(got?.reason).toBeUndefined()
+    const specs = (got!.overwrite as { Subagents: { Prompt: string; Role: string; TypeName: string; Workspace: string }[] }).Subagents
+    expect(specs.map((one) => [one.Role, one.TypeName, one.Workspace])).toEqual([['r0', 'general', 'inherit'], ['r1', 'general', 'inherit']])
+    expect(specs[0]!.Prompt.startsWith('Kehikot: you are a subagent')).toBe(true)
+    expect(specs[0]!.Prompt.endsWith('\n\n---\n\nFind the flaky test.')).toBe(true)
+    expect(specs[1]!.Prompt.endsWith('Read the docs.')).toBe(true)
+    expect(specs[0]!.Prompt).toContain('"Queue heavy test runs here."')
+    expect(specs[0]!.Prompt).toContain('- Test runs: tsc, bun test, script test — "Heavy runs go through the queue."')
+    expect(h.asked.map((one) => one.messages)).toEqual([false])
+    /* A brief already opened so is not opened twice; nothing to open is nothing said. */
+    expect(await w.runs.guard(B, token, subagents(specs[0]!.Prompt), false)).toBeNull()
+    expect(await w.runs.guard(B, token, { conversationId: B, toolCall: { name: 'invoke_subagent', args: { Subagents: 'x' } } }, false)).toBeNull()
+    /* Nothing is kept of it: the session's next model call is told as if the subagent had not been. */
+    expect(said(await w.runs.context('SessionStart', B, token))).toContain('belongs to project')
+  })
 
   test('before: a new conversation was already filed and made its kehikko’s own — but only by the run that started it, once Antigravity had a record', async () => {
     const dir = project()

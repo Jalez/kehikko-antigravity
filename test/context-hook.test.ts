@@ -56,9 +56,9 @@ async function plugin(options: { origin?: string; registration?: string } = {}):
   return dir
 }
 
-function ran(dir: string, event: string, input: string): Promise<{ code: number | null; out: string }> {
+function ran(dir: string, event: string, input: string, script = 'context.sh', env: Record<string, string> = {}): Promise<{ code: number | null; out: string }> {
   return new Promise((done) => {
-    const child = spawn('/bin/sh', [join(dir, 'context.sh'), event], { env: { PATH: '/usr/bin:/bin' } })
+    const child = spawn('/bin/sh', [join(dir, script), event], { env: { PATH: '/usr/bin:/bin', ...env } })
     let out = ''
     child.stdout.on('data', (chunk) => (out += chunk))
     child.on('close', (code) => done({ code, out }))
@@ -134,5 +134,66 @@ describe('context.sh, from a session’s own folder', () => {
     expect(await ran(dir, 'SessionStart', hookInput('SessionStart'))).toEqual({ code: 0, out: NOTHING })
     expect(heard).toHaveLength(0)
     expect(readFileSync(join(dir, 'context.sh'), 'utf8')).toContain('PreInvocation')
+  })
+})
+
+describe('guard.sh, from a session’s own folder (protocol 2.61.0)', () => {
+  const REWRITE = JSON.stringify({ decision: 'allow', reason: 'Rewritten.', overwrite: { CommandLine: "q run -- sh -c 'tsc'" } })
+  const DENY = JSON.stringify({ decision: 'deny', reason: 'No.' })
+  const BRIEF = JSON.stringify({ decision: 'allow', overwrite: { Subagents: [{ Prompt: 'Kehikot: you are a subagent…', Role: 'r' }] } })
+  /** What guard.sh prints when it has nothing to say: the call goes on as it would have. */
+  const ALLOW = '{"decision":"allow"}\n'
+  const shellInput = (command: string) => JSON.stringify({ conversationId: SESSION, workspacePaths: ['/p'], lastUserInput: 'go', stepIdx: 2, toolCall: { name: 'run_command', args: { CommandLine: command, Cwd: '/p', WaitMsBeforeAsync: 5000 } } })
+
+  test('posts the hook input to this module, the token in a header, and prints its answer', async () => {
+    const dir = await plugin()
+    for (const body of [REWRITE, DENY, BRIEF]) {
+      heard.length = 0
+      answer = { status: 200, body }
+      expect(await ran(dir, 'PreToolUse', shellInput(`tsc "it's" && echo $HOME`), 'guard.sh')).toEqual({ code: 0, out: `${body}\n` })
+      expect(heard).toHaveLength(1)
+      expect(heard[0]!.url).toBe(`/api/guard?session=${SESSION}&direct=0`)
+      expect(heard[0]!.ticket).toBe(TOKEN)
+      expect(JSON.parse(heard[0]!.body).toolCall.args.CommandLine).toBe(`tsc "it's" && echo $HOME`)
+    }
+    expect(readFileSync(join(dir, 'guard.sh'), 'utf8')).toContain('/api/guard')
+  })
+
+  test('KEHIKOT_DIRECT in the session’s environment is said', async () => {
+    const dir = await plugin()
+    heard.length = 0
+    answer = { status: 204, body: '' }
+    expect(await ran(dir, 'PreToolUse', shellInput('tsc'), 'guard.sh', { KEHIKOT_DIRECT: '1' })).toEqual({ code: 0, out: ALLOW })
+    expect(heard[0]!.url).toBe(`/api/guard?session=${SESSION}&direct=1`)
+  })
+
+  test('the module moved to another port: its registration says where, and that is asked', async () => {
+    const registration = join(scratch, 'registration-guard.json')
+    writeFileSync(registration, JSON.stringify({ id: 'kehikot.antigravity', url: origin }))
+    const dir = await plugin({ origin: 'http://127.0.0.1:9', registration })
+    heard.length = 0
+    answer = { status: 200, body: DENY }
+    expect((await ran(dir, 'PreToolUse', shellInput('tsc'), 'guard.sh')).out).toBe(`${DENY}\n`)
+    expect(heard).toHaveLength(1)
+  })
+
+  test('nothing to say, another answer, no module or another event: allow and exit 0, the call runs as written', async () => {
+    const dir = await plugin()
+    answer = { status: 204, body: '' }
+    expect(await ran(dir, 'PreToolUse', shellInput('tsc'), 'guard.sh')).toEqual({ code: 0, out: ALLOW })
+    answer = { status: 200, body: ANSWER }
+    expect(await ran(dir, 'PreToolUse', shellInput('tsc'), 'guard.sh')).toEqual({ code: 0, out: ALLOW })
+    answer = { status: 500, body: DENY }
+    expect(await ran(dir, 'PreToolUse', shellInput('tsc'), 'guard.sh')).toEqual({ code: 0, out: ALLOW })
+    heard.length = 0
+    answer = { status: 200, body: DENY }
+    expect(await ran(dir, 'PostToolUse', shellInput('tsc'), 'guard.sh')).toEqual({ code: 0, out: ALLOW })
+    expect(await ran(dir, 'PreToolUse', '{"toolCall":{"name":"run_command"}}', 'guard.sh')).toEqual({ code: 0, out: ALLOW })
+    expect(heard).toHaveLength(0)
+    const gone = await plugin({ origin: 'http://127.0.0.1:9' })
+    expect(await ran(gone, 'PreToolUse', shellInput('tsc'), 'guard.sh')).toEqual({ code: 0, out: ALLOW })
+    const away = await plugin({ origin: 'http://example.com' })
+    expect(await ran(away, 'PreToolUse', shellInput('tsc'), 'guard.sh')).toEqual({ code: 0, out: ALLOW })
+    expect(heard).toHaveLength(0)
   })
 })
