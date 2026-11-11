@@ -31,7 +31,7 @@
 #     the host or this module saying it is not up or cannot know the guards yet: 502, 503, 504) it
 #     asks again every second for up to 20 seconds (GUARD_TIMEOUT in skills.ts gives the hook the
 #     time). Only then does the call run as written, with a `reason` telling the agent it ran
-#     unguarded and how to queue heavy work itself. While Kehikot stays away (`kehikot/away`, five
+#     unguarded and, when a work queue is provided, how to hand it heavy work (`kehikot/unguarded`). While Kehikot stays away (`kehikot/away`, five
 #     minutes) the next calls ask once and do not wait again.
 #   - Every outcome is exit 0, and anything that is not this module's answer is
 #     `{"decision":"allow"}` ("proceed, deferring to the next hook or default policy") — the call
@@ -122,5 +122,11 @@ while :; do
 done
 
 : >"$here/away" 2>/dev/null
-printf '%s\n' '{"decision":"allow","reason":"Kehikot did not answer (it may be restarting), so this call ran without the guards of the modules on your kehikko. Until it is back, run heavy work (tests, typechecks, builds, big installs) through Queue yourself: its CLI, the kehikot-queue program its wait lines name, run as `kehikot-queue run -- <command>` in the background, waits for Queue to come back and exits with the command'"'"'s exit code."}'
+# What the agent is told: this module's line beside the token (`kehikot/unguarded`, written from the work queue Kehikot
+# names, so it is that queue's own words), else only that the call ran unguarded.
+said=$(/usr/bin/head -c 8192 "$here/unguarded" 2>/dev/null)
+case $said in
+  '{"decision":"allow","reason":"'*'"}') printf '%s\n' "$said" ;;
+  *) printf '%s\n' '{"decision":"allow","reason":"Kehikot did not answer (it may be restarting), so this call ran without the guards of the modules on your kehikko."}' ;;
+esac
 exit 0
