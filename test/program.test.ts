@@ -120,7 +120,10 @@ describe('starting and resuming', () => {
 
   test('the session’s environment does not say it is inside another Antigravity process, and asks for OSC 7501', () => {
     const env = PROGRAM.environment({ PATH: '/bin', ANTIGRAVITY_CONVERSATION_ID: A, ANTIGRAVITY_PROJECT_ID: 'p', GEMINI_API_KEY: 'k' })
-    expect(env).toEqual({ PATH: '/bin', GEMINI_API_KEY: 'k', AGY_CLI_OSC7501: 'on', AGY_CLI_OSC7501_MESSAGES: 'brief' })
+    /* A UTF-8 locale is the person's environment's default when none names one (protocol 2.75.0). */
+    const { LC_CTYPE, ...rest } = env
+    expect(rest).toEqual({ PATH: '/bin', GEMINI_API_KEY: 'k', AGY_CLI_OSC7501: 'on', AGY_CLI_OSC7501_MESSAGES: 'brief' })
+    expect(LC_CTYPE).toMatch(/UTF-8$/)
   })
 
   test('a session runs the person’s bun and node, never the ones the host put first on this module’s PATH (personEnv)', () => {
