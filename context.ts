@@ -3,7 +3,7 @@ import { homedir } from 'node:os'
 import { dirname } from 'node:path'
 
 import { checkToolCall, checkoutOf } from 'kehikot-module-protocol/serve'
-import { doorCarriesPlace, guardSays, toolReading, researchLine, sessionNotes, subagentNotes, type NotesPlace, type NotesTold, type PlacedGuard } from 'kehikot-module-protocol'
+import { doorCarriesPlace, guardSays, toolReading, researchLine, sessionNotes, subagentNotes, type NotesPlace, type NotesTold, type PlacedGuard, type WorkQueue } from 'kehikot-module-protocol'
 
 import type { DoorsAsked, HostPlace } from './doorConfig.ts'
 import { ID } from './manifest.ts'
@@ -11,6 +11,7 @@ import { placeKey, readPlaceKey } from './place.ts'
 import type { Program } from './program.ts'
 import { kitSkills, skillsText } from './skills.ts'
 import { PLACE_TOKEN, born, byToken, homeOf, projectRoot, readPlaces, readSettings, type NamedPlace, type Places } from './record.ts'
+import { unguardedSaid } from './workQueue.ts'
 
 /**
  * What a session this module started is told of where it is, without anybody typing anything:
@@ -429,7 +430,7 @@ export function guardAnswer(input: unknown, guards: readonly PlacedGuard[], dire
 /**
  * The command a guard rewrote, as it runs here. Antigravity's `run_command` waits for its command (past `WaitMsBeforeAsync` it goes on in the
  * background, but nothing documented tells the agent when it ends), and a guard's command may wait its turn for
- * many minutes — Queue's `run --guard` waits in line. So it is asked to hand the work off and return
+ * many minutes — a work queue's guarded run waits in line. So it is asked to hand the work off and return
  * at once (`KEHIKOT_DETACH=1`), and the module that took it tells this session when it ends, by the
  * session's place token (`KEHIKOT_PLACE`, as a session hands its token to every door it calls). A
  * command that heeds neither runs as before.
@@ -463,6 +464,16 @@ export function subagentAnswer(input: unknown, notes: string | null): ToolAnswer
     return { ...spec, Prompt: `${notes}\n\n---\n\n${spec.Prompt}` }
   })
   return changed ? { decision: 'allow', overwrite: { Subagents: subagents } } : null
+}
+
+/**
+ * What `guard.sh` prints when Kehikot did not answer and the call runs unguarded: one line, kept beside
+ * the session's token (`kehikot/unguarded`) and rewritten when the work queue the host names changes,
+ * so its words are that queue's own. Without the file the script says only that the guards were not
+ * asked.
+ */
+export function unguardedHook(queue: WorkQueue | null): string {
+  return JSON.stringify({ decision: 'allow', reason: unguardedSaid(queue, 'this call') })
 }
 
 export interface GuardNeeds extends Pick<ContextNeeds, 'program' | 'startedOf' | 'host' | 'kitOf'>, Partial<Pick<ContextNeeds, 'toldFile'>> {

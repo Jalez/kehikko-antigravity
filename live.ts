@@ -18,13 +18,14 @@ import { isKehikkoKey, kehikkoOf, placeKey, sortedParts, type Kehikko } from './
 import { cutOffs, cutOffWords, lastPrompt, midTurn, type CutOff } from './cutoff.ts'
 import { PROGRAM, TELLS, headOf, home, learnSession, learnTitle, oscEvents, recordFile, sessionName, vouch, type Active, type ActiveStatus, type HookGroup, type Program, type Running, type State } from './program.ts'
 import { PLACE_TOKEN, assign, attach, born, byToken, follow, homeOf, isDetached, markSession, markSessions, note, projectRoot, readPlaces, readSettings, recordedIds, sighted, stayDetached, tokenFor, type NamedPlace, type PlaceEntry, type Places, type SessionEntry } from './record.ts'
-import { GUARD_MATCHER, GUARD_TIMEOUT, contextScriptIn, guardScriptIn, removeKit, sessionKit, sweepKits, writeHooks, writeSettings } from './skills.ts'
+import { GUARD_MATCHER, GUARD_TIMEOUT, contextScriptIn, guardScriptIn, removeKit, sessionKit, sweepKits, writeHooks, writeSettings, writeUnguarded } from './skills.ts'
+import { WorkQueueLookup, askedProviders, type FindProviders } from './workQueue.ts'
 import { extraFolders, folderFlags, sessionFlags } from './settings.ts'
-import { freshToken, hostDoors, withOwnDoor, hostPlace, type DoorsAsked, type HostPlace, type SessionDoor } from './doorConfig.ts'
+import { configDirOf, freshToken, hostDoors, withOwnDoor, hostPlace, type DoorsAsked, type HostPlace, type SessionDoor } from './doorConfig.ts'
 import { readPlaceKey } from './place.ts'
 import { type Found, type Told } from './research.ts'
 import { ID } from './manifest.ts'
-import { context, guard, toldWords, type HookAnswer, type Said, type Started, type ToolAnswer } from './context.ts'
+import { context, guard, toldWords, unguardedHook, type HookAnswer, type Said, type Started, type ToolAnswer } from './context.ts'
 import type { PlacedGuard } from 'kehikot-module-protocol'
 
 /**
@@ -1186,6 +1187,8 @@ export interface RunsOptions {
   fetch?: typeof fetch
   /** Where sessions' own folders are written (skills.ts); this user's temporary folder by default. */
   configBase?: string
+  /** Asks the host who provides the work queue (`askedProviders`, protocol 2.81.0); a test stands one in. Absent: none is provided. */
+  services?: FindProviders
 }
 
 /**
@@ -1195,6 +1198,8 @@ export interface RunsOptions {
 export class Runs {
   /** The guards the host last handed for each session token (protocol 2.61.0), for its tool hook. In memory: a restart asks again. */
   private readonly guardsKept = new Map<string, { at: number; guards: PlacedGuard[] }>()
+  /** The work queue the host names (workQueue.ts): what a session is told about handing it heavy work, in its own words. */
+  readonly workQueue: WorkQueueLookup
   readonly runs = new Map<string, Run>()
   private readonly program: Program
   private readonly grace: number
@@ -1275,6 +1280,12 @@ export class Runs {
     this.watchEvery = options.watchEvery === undefined ? WATCH_EVERY : options.watchEvery
     const meterEvery = options.meterEvery === undefined ? METER_EVERY : options.meterEvery
     if (meterEvery !== null) setInterval(() => this.meters(), meterEvery).unref?.()
+    this.workQueue = new WorkQueueLookup(options.services ?? (async () => []), options.services ? join(configDirOf(options.configBase), 'work-queue.json') : null, this.now)
+    /* What a running session's guard hook says when Kehikot is away follows the work queue now named. */
+    this.workQueue.onChange((queue) => {
+      const line = unguardedHook(queue)
+      for (const run of this.runs.values()) if (run.plugin && !run.ended) writeUnguarded(run.plugin, line)
+    })
   }
 
   /** Whether an asking about background sessions is due or under way. */
@@ -2547,7 +2558,7 @@ export class Runs {
     /* Its folder: the skills of every module on the kehikko, its doors, its hooks and its status
        line, for this one process, removed with it (skills.ts). Only for a copy that takes a folder
        for one process (`--add-dir`): that is how the session is given any of it. */
-    const kit = able.plugins ? await sessionKit(doors, { base: this.options.configBase, fetch: this.options.fetch, log: this.log, token, present, everywhere, kehikkoSkills }).catch((error: unknown) => {
+    const kit = able.plugins ? await sessionKit(doors, { base: this.options.configBase, fetch: this.options.fetch, log: this.log, token, present, everywhere, kehikkoSkills, unguarded: unguardedHook(await this.workQueue.fresh()) }).catch((error: unknown) => {
       this.log(`antigravity: the session's folder could not be written — ${error instanceof Error ? error.message : String(error)}`)
       return null
     }) : null
@@ -3549,6 +3560,7 @@ export function theRuns(log: (line: string) => void = () => {}): Runs {
       return spawnPty(file, args, { name: TERM, ...options })
     },
     screen: headless,
+    services: askedProviders(ID),
   })
   held[HELD] = runs
   /* A message to a session idle at its prompt wakes it (protocol 2.43.0): the protocol's rule, typed through `wake`. */
