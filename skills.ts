@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { CLI_TOOLS, WELL_KNOWN, missingNeeds, moduleSkillsSchema, needSaid, skillPath, skillTextIssue, type EverywhereSkill, type KehikkoSkill, type ModuleSkill, type ProvidingManifest } from 'kehikot-module-protocol'
@@ -228,6 +228,8 @@ export interface GatherOptions {
    * each written as it is, before any module's, so a name the person chose is theirs.
    */
   kehikkoSkills?: readonly KehikkoSkill[] | null
+  /** What `guard.sh` prints when Kehikot does not answer (`unguardedHook`): written beside the token. Absent: the script's own words. */
+  unguarded?: string | null
 }
 
 /** One skill of a session, as its context lists it. */
@@ -430,7 +432,10 @@ export async function sessionKit(doors: readonly SessionDoor[], options: GatherO
   writeFileSync(join(dir, '.agents', 'mcp_config.json'), written.json, { mode: 0o600 })
   writeFileSync(join(dir, 'kehikot', 'skills.json'), JSON.stringify(skills), { mode: 0o600 })
   writeFileSync(join(dir, 'status.sh'), readFileSync(STATUS_SCRIPT), { mode: 0o700 })
-  if (options.token && PLACE_TOKEN.test(options.token)) writeContextHook(dir, options.token, options.registration ?? join(registryDir(), `${ID}.json`), stableAddress(doors, ID))
+  if (options.token && PLACE_TOKEN.test(options.token)) {
+    writeContextHook(dir, options.token, options.registration ?? join(registryDir(), `${ID}.json`), stableAddress(doors, ID))
+    if (options.unguarded) writeUnguarded(dir, options.unguarded)
+  }
   return { dir, skills, doors: written.names }
 }
 
@@ -509,6 +514,26 @@ export const contextScriptIn = (dir: string): string => join(dir, 'context.sh')
 
 /** Where a session's status line script is in its folder. */
 export const statusScriptIn = (dir: string): string => join(dir, 'status.sh')
+
+/** Where a session's folder keeps what `guard.sh` prints when Kehikot does not answer. */
+export const UNGUARDED_FILE = join('kehikot', 'unguarded')
+
+/**
+ * Write what `guard.sh` prints when Kehikot does not answer into a session's folder, 0600, beside its
+ * token — at its start and again whenever the work queue the host names changes. A folder without
+ * its `kehikot/` is not a session's and is left alone. Never throws: false says it was not written.
+ */
+export function writeUnguarded(dir: string, line: string): boolean {
+  try {
+    const file = join(dir, UNGUARDED_FILE)
+    const temporary = `${file}.${process.pid}.tmp`
+    writeFileSync(temporary, line, { mode: 0o600 })
+    renameSync(temporary, file)
+    return true
+  } catch {
+    return false
+  }
+}
 
 function writeContextHook(dir: string, token: string, registration: string, stable: string | null): void {
   writeFileSync(join(dir, 'context.sh'), readFileSync(CONTEXT_SCRIPT), { mode: 0o700 })
