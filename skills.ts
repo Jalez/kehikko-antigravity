@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-import { WELL_KNOWN, missingNeeds, moduleSkillsSchema, needSaid, skillPath, skillTextIssue, type EverywhereSkill, type KehikkoSkill, type ModuleSkill, type ProvidingManifest } from 'kehikot-module-protocol'
+import { CLI_TOOLS, WELL_KNOWN, missingNeeds, moduleSkillsSchema, needSaid, skillPath, skillTextIssue, type EverywhereSkill, type KehikkoSkill, type ModuleSkill, type ProvidingManifest } from 'kehikot-module-protocol'
 import { originFor, preferred, registryDir } from 'kehikot-module-protocol/serve'
 
 import { configDirOf, mcpConfigJson, type SessionDoor } from './doorConfig.ts'
@@ -493,8 +493,13 @@ export const STATUS_SCRIPT = join(import.meta.dirname, 'status.sh')
 /** The script a session's tool hook runs, copied into its folder (see `guard.sh`, protocol 2.61.0). */
 export const GUARD_SCRIPT = join(import.meta.dirname, 'guard.sh')
 
-/** The tools that hook is run before (a regular expression, the hooks docs' `matcher`): the shell, and starting subagents. */
-export const GUARD_MATCHER = '^(run_command|invoke_subagent)$'
+/**
+ * The tools that hook is run before (a regular expression, the hooks docs' `matcher`): every tool the
+ * protocol's table says a guard kind holds (`CLI_TOOLS.antigravity`: the shell and the file-editing
+ * tools, at protocol 2.80.0), and starting subagents. A tool the table gains later is hooked on the next
+ * protocol pin.
+ */
+export const GUARD_MATCHER = `^(${[...Object.keys(CLI_TOOLS.antigravity), 'invoke_subagent'].join('|')})$`
 
 /** Where a session's tool hook is in its folder. */
 export const guardScriptIn = (dir: string): string => join(dir, 'guard.sh')

@@ -1,6 +1,7 @@
 #!/bin/sh
 #
-# What a session this module started runs before each shell command (`run_command`) and before it
+# What a session this module started runs before each shell command (`run_command`), each file edit
+# (`write_to_file`, `replace_file_content`, `multi_replace_file_content`; protocol 2.80.0) and before it
 # starts subagents (`invoke_subagent`): asks this module what becomes of the call (protocol 2.61.0,
 # see `guard` in context.ts) and prints what the CLI is to do.
 #
