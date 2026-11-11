@@ -944,7 +944,7 @@ describe('asking the program to say what it is doing', () => {
     for (const one of TELLS) expect(text).toContain(JSON.stringify(tellLine(one.says)).slice(1, -1))
     expect(text).toContain('context.sh')
     /* The tool hook (protocol 2.61.0): before the shell and before subagents start, from its own folder. */
-    const tool = (hooks.kehikot.PreToolUse as { matcher: string; hooks: { command: string }[] }[]).find((one) => one.matcher === '^(run_command|invoke_subagent)$')
+    const tool = (hooks.kehikot.PreToolUse as { matcher: string; hooks: { command: string }[] }[]).find((one) => one.matcher === '^(run_command|write_to_file|replace_file_content|multi_replace_file_content|invoke_subagent)$')
     expect(tool?.hooks.map((one) => one.command)).toEqual([`/bin/sh '${join(kit, 'guard.sh')}' PreToolUse`])
     expect(readFileSync(join(kit, 'guard.sh'), 'utf8')).toBe(readFileSync(join(import.meta.dir, '..', 'guard.sh'), 'utf8'))
     /* Never anything that widens what the CLI may do. */
@@ -2232,7 +2232,7 @@ describe('a session started here knows its place and its kehikko’s modules, an
     const run = (await w.runs.open(ask(dir, null, KEYED), new Watcher())) as Run
     expect(readFileSync(join(run.plugin!, 'kehikot', 'stable'), 'utf8')).toBe('http://127.0.0.1:4170/m/kehikot.antigravity')
     const hooks = JSON.parse(readFileSync(join(run.plugin!, '.agents', 'hooks.json'), 'utf8')) as { kehikot: { PreToolUse: { matcher: string; hooks: { command: string; timeout: number }[] }[] } }
-    const tool = hooks.kehikot.PreToolUse.find((one) => one.matcher === '^(run_command|invoke_subagent)$')!
+    const tool = hooks.kehikot.PreToolUse.find((one) => one.matcher === '^(run_command|write_to_file|replace_file_content|multi_replace_file_content|invoke_subagent)$')!
     expect(tool.hooks[0]!.timeout).toBeGreaterThanOrEqual(25)
     w.runs.end(B)
   })

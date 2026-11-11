@@ -1,7 +1,9 @@
 import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { dirname } from 'node:path'
 
-import { doorCarriesPlace, guardDecision, guardSays, researchLine, sessionNotes, subagentNotes, type NotesPlace, type NotesTold, type PlacedGuard } from 'kehikot-module-protocol'
+import { checkToolCall, checkoutOf } from 'kehikot-module-protocol/serve'
+import { doorCarriesPlace, guardSays, toolReading, researchLine, sessionNotes, subagentNotes, type NotesPlace, type NotesTold, type PlacedGuard } from 'kehikot-module-protocol'
 
 import type { DoorsAsked, HostPlace } from './doorConfig.ts'
 import { ID } from './manifest.ts'
@@ -382,20 +384,46 @@ function toolCallOf(input: unknown): { name: string; args: Record<string, unknow
   return { name, args: args as Record<string, unknown> }
 }
 
+/** This CLI's name in the protocol's table of agent CLIs' tools. */
+export const CLI = 'antigravity'
+
+/** What the answer reads of this computer: the home folder for `~/` patterns, and which kind of git checkout a file is in (`checkoutOf`). */
+export interface EditFiles {
+  home: string | null
+  checkoutOf(path: string): 'main' | 'linked' | null
+}
+
+export const EDIT_FILES: EditFiles = {
+  home: homedir(), // kehikot-storage: allow read-only: the home folder an edit guard's ~/ patterns name
+  checkoutOf: (path) => checkoutOf(path),
+}
+
+/** The folder a relative path in a tool call is read against: the session's first workspace path (the hook input's `workspacePaths`), or null. */
+function workspaceOf(input: unknown): string | null {
+  const paths = input && typeof input === 'object' ? (input as { workspacePaths?: unknown }).workspacePaths : null
+  return Array.isArray(paths) && typeof paths[0] === 'string' ? paths[0] : null
+}
+
 /**
- * THE ANSWER to one shell call (`run_command`, whose command is `CommandLine`), from the hook's input
- * and the session's guards: pure. A rewrite overwrites only `CommandLine`, with `allow`, and says
- * what was done (`guardSays`) as the reason. A deny refuses with the module's words. Null: run it as
- * written — another tool, no command, no guard, or `direct` (KEHIKOT_DIRECT in the session's
- * environment). A rewritten command is handed off (`handedOff`).
+ * THE ANSWER to one tool call, from the hook's input and the session's guards: pure but for what
+ * `files` reads. Every call goes through the protocol's one check (`checkToolCall`, protocol 2.80.0),
+ * which applies every guard kind the placed modules declare to whichever of the CLI's tools it holds
+ * (`CLI_TOOLS.antigravity`): a shell guard to `run_command` (its `CommandLine`), an edit guard to the
+ * file `write_to_file`, `replace_file_content` or `multi_replace_file_content` edits (its
+ * `TargetFile`; a relative one read against the first of the hook's `workspacePaths`).
+ *
+ * A rewrite overwrites only the command, with `allow`, and says what was done (`guardSays`) as the
+ * reason. A deny refuses with the module's words. Null: run it as written — a tool no guard holds, no
+ * guard, or `direct` (KEHIKOT_DIRECT in the session's environment). A rewritten command is handed off
+ * (`handedOff`).
  */
-export function guardAnswer(input: unknown, guards: readonly PlacedGuard[], direct = false, token: string | null = null): ToolAnswer | null {
+export function guardAnswer(input: unknown, guards: readonly PlacedGuard[], direct = false, token: string | null = null, files: EditFiles = EDIT_FILES): ToolAnswer | null {
   const call = toolCallOf(input)
-  if (!call || call.name !== SHELL_TOOL || typeof call.args.CommandLine !== 'string') return null
-  const decision = guardDecision(guards, call.args.CommandLine, { tool: 'shell', env: direct ? { KEHIKOT_DIRECT: '1' } : {} })
+  if (!call) return null
+  const decision = checkToolCall({ cli: CLI, tool: call.name, input: call.args, cwd: workspaceOf(input) }, guards, { home: files.home, checkoutOf: files.checkoutOf, env: direct ? { KEHIKOT_DIRECT: '1' } : {} })
   if (decision.action === 'pass') return null
   if (decision.action === 'deny') return { decision: 'deny', reason: guardSays(decision) }
-  return { decision: 'allow', reason: `${guardSays(decision)} ${HANDED_OFF}`, overwrite: { CommandLine: handedOff(decision.command, token) } }
+  return { decision: 'allow', reason: `${guardSays(decision)} ${HANDED_OFF}`, overwrite: { [decision.field]: handedOff(decision.command, token) } }
 }
 
 /**
@@ -445,10 +473,10 @@ export interface GuardNeeds extends Pick<ContextNeeds, 'program' | 'startedOf' |
 }
 
 /**
- * The session's tool hook (`guard.sh` → `POST /api/guard`), before a shell command or a subagent's
- * start:
+ * The session's tool hook (`guard.sh` → `POST /api/guard`), before a tool the protocol's table holds
+ * (`CLI_TOOLS.antigravity`) or a subagent's start:
  *
- *  - `run_command`: what becomes of the command under the guards of the modules placed on its
+ *  - a held tool (`run_command`, the file-editing tools): what becomes of the call under the guards of the modules placed on its
  *    kehikko. The guards kept from the last ask of the host are used while fresh (`GUARDS_FRESH_MS`),
  *    else the host is asked again, without messages.
  *  - `invoke_subagent`: each subagent's brief opened with `subagentNotes` — the place, what the
@@ -464,7 +492,7 @@ export async function guard(asked: { session: string; token: string | null; inpu
   if (!needs.program.isId(session) || !token || !PLACE_TOKEN.test(token)) return null
   const tool = toolCallOf(asked.input)?.name
   if (tool === SUBAGENT_TOOL) return subagentBrief(session, token, asked.input, needs)
-  if (tool !== SHELL_TOOL) return null
+  if (!toolReading(CLI, tool)) return null
   const now = needs.now?.() ?? Date.now()
   const kept = needs.keptGuards(token)
   let guards = kept && now - kept.at < GUARDS_FRESH_MS ? kept.guards : null
