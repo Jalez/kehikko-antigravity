@@ -48,7 +48,7 @@ The session's state also comes, without any configuration, from **OSC 7501**: th
 | Codex module feature | Antigravity CLI mechanism | Here |
 |---|---|---|
 | Find the binary | vendor installer puts `agy` in `~/.local/bin` (found here: `/Users/…/.local/bin/agy`, 1.4.12; the person runs 1.4.8) | **done** |
-| New / resumed session | `agy` (CLI picks a UUID); `agy --conversation <id>`; `-i "<line>"` for the restart sentence | **done** |
+| New / resumed session | `agy` (CLI picks a UUID); `agy --conversation <id>`; `-i "<line>"` for the restart sentence, and for the brief of a task Kehikot starts (`agent.tasks`, adopt.ts) | **done** |
 | Conversation id of a new session | hooks' `conversationId`; status line's `conversation_id` | **done** (learned at the first turn) |
 | Per-run MCP doors (`-c mcp_servers`) | `.agents/mcp_config.json` in an `--add-dir` workspace (`{ mcpServers: { name: { url } } }`, Streamable HTTP only) | **done** — *documented, not measured*; SSE doors left out |
 | Per-run hooks, trusted per run | `.agents/hooks.json` in the same folder; events `SessionStart`, `PreInvocation`, `PostInvocation`, `PreToolUse`, `PostToolUse`, `Stop` | **done** — *documented, not measured*. Third-party notes say workspace hooks need the folder trusted (`trustedWorkspaces`); this module does not set that (it would replace the person's list for the session) |

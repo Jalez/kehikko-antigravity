@@ -35,6 +35,7 @@ import {
   type View,
 } from './view/places.ts'
 import { TerminalView, type Said, type Standing } from './view/terminal-view.tsx'
+import { TaskApp, taskSession } from './view/task.tsx'
 import { findSlot, type FindSlot } from 'kehikot-module-protocol/client/find'
 import { Button } from '@/components/ui/button'
 
@@ -121,7 +122,18 @@ export function holdsActivity(answers: readonly string[] | null | undefined): bo
   return Array.isArray(answers) && answers.includes('activity.set')
 }
 
+const findTask = (session: string) => realApi.task!(session)
+
+/**
+ * The page: the place's conversation in a container — or, at `/app?session=<id>` (`agent.tasks`' view,
+ * protocol 2.88.0), just that one conversation, with no host greeting needed (view/task.tsx).
+ */
 export function App() {
+  const task = taskSession()
+  return task ? <TaskApp session={task} find={findTask} /> : <HostedApp />
+}
+
+function HostedApp() {
   const presses = useRef<Press | null>(null)
   /** The search of the session on screen, for the host's find bar (`TerminalView`). */
   const finder = useMemo(findSlot, [])
