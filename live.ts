@@ -16,7 +16,7 @@ import { emptyPrompt, promptAfter, typedByPerson, type Prompt } from './input.ts
 import { contextOf, readStatus, type Context, type StatusSaid } from './meter.ts'
 import { isKehikkoKey, kehikkoOf, placeKey, sortedParts, type Kehikko } from './place.ts'
 import { cutOffs, cutOffWords, lastPrompt, midTurn, type CutOff } from './cutoff.ts'
-import { PROGRAM, TELLS, headOf, home, learnSession, learnTitle, oscEvents, recordFile, sessionName, vouch, type Active, type ActiveStatus, type HookGroup, type Program, type Running, type State } from './program.ts'
+import { LABEL_CHARS, PROGRAM, TELLS, headOf, home, learnSession, learnTitle, oscEvents, recordFile, sessionName, vouch, type Active, type ActiveStatus, type HookGroup, type Program, type Running, type State } from './program.ts'
 import { PLACE_TOKEN, assign, attach, born, byToken, follow, homeOf, isDetached, markSession, markSessions, note, projectRoot, readPlaces, readSettings, recordedIds, sighted, stayDetached, tokenFor, type NamedPlace, type PlaceEntry, type Places, type SessionEntry } from './record.ts'
 import { GUARD_MATCHER, GUARD_TIMEOUT, contextScriptIn, guardScriptIn, removeKit, sessionKit, sweepKits, writeHooks, writeSettings, writeUnguarded } from './skills.ts'
 import { WorkQueueLookup, askedProviders, type FindProviders } from './workQueue.ts'
@@ -294,6 +294,9 @@ const ENTER_AFTER = 250
 const ASLEEP_FOR = 24 * 60 * 60_000
 /** How long a session resumed for a message is given to come to its prompt before what came is typed. */
 const RESUME_READY_MS = 60_000
+/** How long a task's new conversation has to say its id (`task`), and how often it is asked. */
+const TASK_SETTLE_MS = 60_000
+const TASK_SETTLE_EVERY = 250
 /**
  * A line sent to a session and taken: how long a sighting of the prompt has to come after the line
  * to count (a status line may still draw the prompt while the turn begins), and how long after the
@@ -2028,6 +2031,85 @@ export class Runs {
     return false
   }
 
+  /**
+   * Start a NEW conversation for one of Kehikot's own tasks (`agent.tasks`, adopt.ts): the way a place
+   * starts one, with no viewer, and `brief` as its first prompt (`-i`, `fresh` in program.ts). Filed
+   * under `place` by itself once Antigravity says its id (`settle` → `born`), like any conversation
+   * started at a place. Waits for that id, which is what the host is answered with; a conversation
+   * that does not say it in time is ended, so a host that asks again does not leave two behind.
+   */
+  async task(projectPath: string, place: NamedPlace, brief: string, title = '', waitMs = TASK_SETTLE_MS): Promise<{ ok: true; session: string } | { ok: false; why: string }> {
+    const root = projectRoot(projectPath)
+    if (!root.ok) return { ok: false, why: root.error }
+    this.know(root.value)
+    const id = this.program.newId()
+    /* A brief that starts with a dash would be read as a flag: one space in front of it is not. */
+    const line = brief.startsWith('-') ? ` ${brief}` : brief
+    const run = await this.start(root.value, id, { what: 'session', projectPath: root.value, projectId: projectIdAt(root.value), place, session: null, unwatched: true, cols: 120, rows: 40 }, line)
+    if ('code' in run) return { ok: false, why: run.why }
+    const until = this.now() + waitMs
+    while (!run.ended && !run.settled && this.now() < until) {
+      await this.settle(run).catch(() => {})
+      if (!run.settled) await new Promise((done) => setTimeout(done, TASK_SETTLE_EVERY))
+    }
+    if (!run.settled) {
+      this.log(`antigravity: a task started as ${id} did not say its conversation's id in time; ended`)
+      if (!run.ended) kill(run.pty)
+      return { ok: false, why: `${this.program.name} started, but did not say which conversation it is in time.` }
+    }
+    const session = run.settled
+    /* Its title, until Antigravity gives it one of its own. */
+    const said = title.replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, LABEL_CHARS)
+    if (said) {
+      markSession(root.value, session, (entry) => {
+        if (entry.label) return false
+        entry.label = said
+        return true
+      })
+      if (!run.label) run.label = said
+    }
+    this.told(root.value)
+    return { ok: true, session }
+  }
+
+  /**
+   * A conversation a host just filed under another place (`bring`, adopt.ts): when a run here holds its
+   * terminal, the run takes that place at once — what its hooks are told and what its guards are, from
+   * the next prompt on (`startedOf`). Nothing is restarted. False when no run here holds it.
+   */
+  holding(session: string, place: NamedPlace | null): boolean {
+    const run = this.find(session)
+    if (!run || run.ended) return false
+    if (place) {
+      run.at = place
+      if (run.token) this.issue(run.token, { projectPath: run.projectPath, projectId: run.projectId, place })
+      this.changed()
+    }
+    return true
+  }
+
+  /**
+   * Where a conversation is, for the page that shows just that one (`agent.tasks`' view): the project and
+   * place of the run holding it, else of the record of a project this server knows that files it. Null
+   * when neither does.
+   */
+  taskTarget(session: string): { projectPath: string; projectId: string | null; place: NamedPlace } | null {
+    if (!this.program.isId(session)) return null
+    const run = this.find(session)
+    if (run && !run.ended) {
+      const place = run.at ?? run.place
+      if (place) return { projectPath: run.projectPath, projectId: run.projectId, place }
+    }
+    for (const project of this.knownProjects()) {
+      const read = readPlaces(project)
+      if (!read.ok) continue
+      const home = homeOf(read.value, session)
+      if (!home || !Object.hasOwn(read.value.places, home)) continue
+      return { projectPath: project, projectId: projectIdAt(project), place: placeOf(read.value.places[home]!) }
+    }
+    return null
+  }
+
   /** Whether the person allowed the session behind a token to act on messages (protocol 2.43.0): its project's setting. */
   actsOnMessages(token: string): boolean {
     const started = this.startedOf(token)
@@ -2497,7 +2579,7 @@ export class Runs {
     void this.meter(run)
   }
 
-  private async start(projectPath: string, id: string, asked: Extract<Opening, { what: 'session' }>): Promise<Run | Refusal> {
+  private async start(projectPath: string, id: string, asked: Extract<Opening, { what: 'session' }>, brief?: string): Promise<Run | Refusal> {
     const found = this.program.find()
     if (!found.file) return { code: CLOSED.missing, why: `${this.program.name} is not installed.` }
     /* The look at what a restart cut off goes first: it may be this very conversation. */
@@ -2608,7 +2690,7 @@ export class Runs {
     /* The folders beside the project the person gave this project's sessions (settings.ts): read as the project is, without asking file by file. */
     const folders = extraFolders(settings, projectPath)
     const args = [
-      ...(settled ? this.program.resume(settled, undefined, line) : this.program.fresh(id)),
+      ...(settled ? this.program.resume(settled, undefined, line) : this.program.fresh(id, undefined, brief)),
       /* Its own folder as a workspace root: its hooks, doors and skills; and its status line, for this one process. */
       ...(kit ? this.program.kitArgs(kit.dir, settingsFile) : []),
       ...folderFlags(folders),
@@ -2696,7 +2778,7 @@ export class Runs {
     }
     this.runs.set(id, run)
     this.keepWatching()
-    this.log(`antigravity: ${found.file} ${settled ? `resume ${settled}` : '(new)'}${tells ? ', asked to report' : ''}${doors.length ? `, ${doors.length} door${doors.length === 1 ? '' : 's'}` : ''}${kit?.skills.length ? `, ${kit.skills.length} skill${kit.skills.length === 1 ? '' : 's'}` : ''}${line ? ', told it was cut off' : ''}${folders.length ? `, with ${folders.join(', ')}` : ''} in ${projectPath} (pid ${pty.pid})`)
+    this.log(`antigravity: ${found.file} ${settled ? `resume ${settled}` : brief ? '(new, a task with its brief)' : '(new)'}${tells ? ', asked to report' : ''}${doors.length ? `, ${doors.length} door${doors.length === 1 ? '' : 's'}` : ''}${kit?.skills.length ? `, ${kit.skills.length} skill${kit.skills.length === 1 ? '' : 's'}` : ''}${line ? ', told it was cut off' : ''}${folders.length ? `, with ${folders.join(', ')}` : ''} in ${projectPath} (pid ${pty.pid})`)
     if (copyOf) this.log(`antigravity: ${settled} is open in another process (pid ${copyOf.pid ?? '?'}) and a person chose to open it here anyway`)
     if (unchecked) {
       this.log(`antigravity: ${settled} was resumed without asking whether it is open elsewhere — ${unchecked === 'too-old' ? 'this copy cannot be asked' : 'the asking failed'}`)

@@ -37,7 +37,9 @@ import { readPlaces } from './record.ts'
  *
  * A prompt of anybody's but the person's: the person types. The one sentence this module ever
  * sends is its own, fixed, to a conversation a restart cut off mid-turn, when the person opens it
- * again, behind a setting they can turn off (`RESUME_LINE` in live.ts). And no flag that widens
+ * again, behind a setting they can turn off (`RESUME_LINE` in live.ts). The one other first prompt
+ * is a brief Kehikot itself starts a NEW conversation with, for a task the person approved
+ * (`agent.tasks`, adopt.ts): only the host's own server can ask for it (`vouchHost`). And no flag that widens
  * what the program may do: never `--dangerously-skip-permissions`, never `--mode auto`, nothing
  * about the sandbox. A session opened here has exactly the permissions `agy` would have in any
  * terminal in that folder, but for the mode the person chose in Settings (settings.ts).
@@ -45,7 +47,7 @@ import { readPlaces } from './record.ts'
  * ## Every command line this module ever runs, and it is the whole list
  *
  *     agy --help                                               once per binary: which flags it has
- *     agy [--conversation <id> [-i <line>]] --add-dir <kit> [--settings <file>] [--add-dir <folder>]... [--model m] [--effort e] [--mode m]
+ *     agy [--conversation <id>] [-i <line>] --add-dir <kit> [--settings <file>] [--add-dir <folder>]... [--model m] [--effort e] [--mode m]
  *     ps -axo pid=,args=                                       which agy process holds which conversation: reads
  *     lsof -a -d cwd -F pn -p <pids>                           the folder each of those runs in: reads
  *
@@ -156,7 +158,8 @@ export interface Program {
   supports(file: string): Promise<Able>
   newId(): string
   isId(id: string): boolean
-  fresh(id: string, name?: string): string[]
+  /** A new session; `line`, when said, is its first prompt (`agent.tasks`: the host's brief). */
+  fresh(id: string, name?: string, line?: string): string[]
   resume(id: string, name?: string, line?: string): string[]
   settled(projectPath: string, id: string, since: number): Promise<string | null>
   sessions(projectPath: string, also?: readonly string[]): Promise<Recorded[]>
@@ -727,7 +730,8 @@ async function active(_file: string): Promise<Running> {
  * ------------------------------------------------------------------------ */
 
 /**
- * A new session: no arguments of its own — the CLI chooses the id. Its folder and settings
+ * A new session: no arguments of its own — the CLI chooses the id — but, for a task Kehikot starts
+ * (`agent.tasks`, adopt.ts), its brief as the first prompt (`-i`), as a resumed one is given the restart sentence. Its folder and settings
  * (`kitArgs`) are added by whoever starts it.
  *
  * ## Why not in the background
@@ -736,7 +740,7 @@ async function active(_file: string): Promise<Running> {
  * attaches; a session started here is a child of this module's process and ends with it, and the
  * next open of its place resumes it by id.
  */
-const fresh = (): string[] => []
+const fresh = (_id?: string, _name?: string, said?: string): string[] => (said && !said.startsWith('-') ? ['-i', said] : [])
 
 /** A recorded session, with a sentence of this module's own as its first prompt when there is one (`-i`: "run an initial prompt interactively and continue the session"). */
 const resume = (id: string, _name?: string, said?: string): string[] => {

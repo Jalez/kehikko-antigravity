@@ -168,4 +168,11 @@ export const MANIFEST: Manifest = manifestSchema.parse({
     settings: SETTINGS,
   },
   health: '/healthz',
+  /* What the HOST calls here when a person adopts a tracker item (protocol 2.88.0, adopt.ts): which of
+     its conversations worked on it, filing one under a place, and a new conversation fed a brief. Only
+     the host's own server is answered (`vouchHost`). */
+  services: {
+    'conversations.finder': { name: 'Antigravity', program: 'Antigravity CLI', find: '/api/conversations/find', bring: '/api/conversations/bring' },
+    'agent.tasks': { name: 'Antigravity', program: 'Antigravity CLI', start: '/api/tasks/start', view: '/app?session={session}' },
+  },
 })

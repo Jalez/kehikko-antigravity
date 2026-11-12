@@ -2,6 +2,7 @@ import { answered, ask, follow, ticket } from 'kehikot-module-protocol/client'
 
 import type { Listing } from '../doors.ts'
 import type { ActivityRow, Metered, Notice, SessionsChanged, Stated } from '../live.ts'
+import type { TaskTarget } from './view/task.tsx'
 
 /**
  * This module's own `/api`, as the page calls it. `ask` carries the ticket —
@@ -59,6 +60,8 @@ export interface Api {
    * server keeps it only while a feed is open. Returns the function that
    * stops following.
    */
+  /** Where one conversation is (`agent.tasks`' view): its project and the place it is filed under. */
+  task?(session: string): Promise<TaskTarget>
   feed?(notices: boolean, heard: { state(stated: Stated): void; notice(notice: Notice): void; activity?(items: ActivityRow[]): void; sessions?(event?: SessionsChanged): void; context?(said: Metered): void; attached?(): void }, project?: string | null, page?: string): () => void
 }
 
@@ -86,6 +89,9 @@ export const api: Api = {
   },
   async detach(projectPath, key, session) {
     answered(await ask('./api/detach', { body: { projectPath, key, session } }))
+  },
+  async task(session) {
+    return answered(await ask<{ ok: true } & TaskTarget>('./api/task', { query: { session }, ticket: true }))
   },
   async told(projectPath, session) {
     return answered(await ask<{ ok: true; told: Told | null }>('./api/told', { query: { projectPath, session }, ticket: true })).told

@@ -2,7 +2,7 @@
 import { run } from 'kehikot-module-protocol/run'
 import { originFor } from 'kehikot-module-protocol/serve'
 
-import { BUILD, MANIFEST, MOST_READ, TICKET, answer, ours, servingAt, stream } from './doors.ts'
+import { ADOPT, BUILD, MANIFEST, MOST_READ, TICKET, answer, ours, servingAt, stream } from './doors.ts'
 import { sessionSockets, theRuns } from './live.ts'
 import { ID, PREFERRED_PORT } from './manifest.ts'
 
@@ -31,6 +31,8 @@ const running = await run({
   dir: import.meta.dirname,
   manifest: MANIFEST,
   answer,
+  /* The routes only the host calls (adopt.ts), asked first: they read the request's headers. */
+  before: ADOPT,
   stream,
   build: BUILD,
   ticket: TICKET,

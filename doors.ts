@@ -8,6 +8,7 @@ import { isKehikkoKey, kehikkoOf, placeKey, readPlaceKey, type Place } from './p
 import { PROGRAM, headOf, home, type Program, type Recorded, type Running, type State } from './program.ts'
 import { PLACE_TOKEN, WHERE, assign, detach, follow, homeOf, isDetached, ownOf, projectRoot, readPlaces, readSettings, recordedIds, rekey, sessionsAt, writeSettings, type Places } from './record.ts'
 import { here } from './here.ts'
+import { adoptDoor } from './adopt.ts'
 import { isSkillPath, serveFrom, skillAt, skillDeclarations } from './skills.ts'
 import { contextWords, costSaid, percentOf, type Context } from './meter.ts'
 
@@ -78,6 +79,35 @@ export const MOST_READ = 64 * 1024
 
 /** Whether the host holds a folder as a project: the protocol's question, here so a test can stand a host in. */
 export const hostCheck = { has: (folder: string) => hostHasProject(folder) }
+
+/**
+ * The routes only the HOST calls (protocol 2.88.0, adopt.ts): `conversations.finder`'s find and bring,
+ * and `agent.tasks`' start. Asked before the doors (`before` in serve.ts, `beforeDoors` in
+ * vite.config.ts), because they are held to the request's headers (`vouchHost`).
+ */
+export const ADOPT = adoptDoor(() => {
+  const runs = theRuns()
+  const held = (project: string, session: string) => {
+    const run = runs.find(session)
+    return Boolean(run && !run.ended && run.projectPath === project)
+  }
+  return {
+    program: PROGRAM,
+    running: async () => {
+      const ids = new Set(runs.sessions().filter((run) => !run.ended).map((run) => run.settled ?? run.id))
+      const found = PROGRAM.find()
+      if (found.file && (await PROGRAM.supports(found.file)).lists) {
+        const listed = await PROGRAM.active(found.file)
+        if (listed.known) for (const one of listed.active) ids.add(one.session)
+      }
+      return ids
+    },
+    holding: (project, session, place) => held(project, session) && runs.holding(session, place),
+    runsIn: held,
+    told: (project, assigned) => runs.told(project, assigned),
+    task: (project, place, brief, title) => runs.task(project, place, brief, title),
+  }
+})
 
 /** What this process is built from, said in the manifest, at `/healthz`, in the page and on every answer. */
 export const BUILD = establishBuild({ version: VERSION, dir: import.meta.dirname })
@@ -804,6 +834,15 @@ export async function answer(
     const id = query.get('projectId') ?? ''
     const said = await listing(query.get('projectPath') ?? '', query.get('key') ?? '', undefined, undefined, PROJECT_ID.test(id) ? id : null)
     return said.ok ? ok(said) : bad(said.error)
+  }
+
+  /* Where one conversation is, for the page that shows just that one (`agent.tasks`' view,
+     `?session=<id>`): its project and place, so the page can open it standalone. A person's read,
+     through the page's ticket. */
+  if (path === '/api/task' && method === 'GET') {
+    const target = theRuns().taskTarget((query.get('session') ?? '').slice(0, 64))
+    if (!target) return bad('This computer has no Antigravity conversation by that id that Kehikot knows of.', 404)
+    return ok({ ok: true, ...target })
   }
 
   /* Bring the entries an older release filed under this kehikko's row number
