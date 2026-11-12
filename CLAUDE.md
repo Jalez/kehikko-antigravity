@@ -1,7 +1,7 @@
 # Antigravity — notes for agents
 
 A Kehikot module: a terminal holding the Antigravity CLI (`agy`) session that belongs to a place
-(project, epic, picked parts, kehikko). The sibling of the Codex and Claude modules: the same record,
+(project, space, kehikko). The sibling of the Codex and Claude modules: the same record,
 page and doors, with `program.ts` answering for `agy`. README.md says what it does, what the CLI can
 and cannot do, and what is documented but not measured.
 
