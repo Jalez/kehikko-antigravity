@@ -11,7 +11,7 @@ export { ID, NOTICES }
 export const DELIVER_PATH = '/api/delivery/deliver'
 
 /** How a conversation started outside Kehikot is placed with this module, said to one the host does not know (`agent.delivery`'s `adopt`). */
-export const ADOPT = 'Type /kehikot-here in it.'
+export const ADOPT_SENTENCE = 'Type /kehikot-here in it.'
 /* This module's introduction (protocol 2.57.0): slides the host shows in its introduction dialog. Also
    read as a file from the repository, so a person can watch it before the module runs or is installed. */
 import intro from './intro.json'
@@ -181,6 +181,6 @@ export const MANIFEST: Manifest = manifestSchema.parse({
     'conversations.finder': { name: 'Antigravity', program: 'Antigravity CLI', find: '/api/conversations/find', bring: '/api/conversations/bring' },
     'agent.tasks': { name: 'Antigravity', program: 'Antigravity CLI', start: '/api/tasks/start', view: '/app?session={session}' },
     /* Messaging is the host's (protocol 2.96.0); this module delivers to its conversations and places an outside one (`/kehikot-here`). */
-    'agent.delivery': { name: 'Antigravity CLI', program: 'Antigravity', deliver: DELIVER_PATH, adopt: ADOPT },
+    'agent.delivery': { name: 'Antigravity CLI', program: 'Antigravity', deliver: DELIVER_PATH, adopt: ADOPT_SENTENCE },
   },
 })
