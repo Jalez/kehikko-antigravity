@@ -11,9 +11,10 @@ import {
   type ConversationsBringResult,
   type ConversationsFindParams,
 } from 'kehikot-module-protocol'
-import { vouchHost, type Before } from 'kehikot-module-protocol/serve'
+import { acceptTask, vouchHost, type Before } from 'kehikot-module-protocol/serve'
 
 import { freshToken } from './doorConfig.ts'
+import { ID } from './manifest.ts'
 import { placeKey, readPlaceKey, sortedParts } from './place.ts'
 import { hasRecord, type Program } from './program.ts'
 import { assign, disconnect, homeOf, projectRoot, readPlaces, tokenFor, type NamedPlace, type Places } from './record.ts'
@@ -63,8 +64,10 @@ export interface AdoptNeeds {
   runsIn(project: string, session: string): boolean
   /** The record changed: pages read their lists again; `assigned` puts it on screen at its place. */
   told(project: string, assigned?: { key: string; session: string }): void
-  /** Start a new conversation with a brief (`task` in live.ts). */
-  task(project: string, place: NamedPlace, brief: string, title: string): Promise<{ ok: true; session: string } | { ok: false; why: string }>
+  /** Start a new conversation with a brief (`task` in live.ts), its run under `id` when given (what `start` answered). */
+  task(project: string, place: NamedPlace, brief: string, title: string, id?: string): Promise<{ ok: true; session: string } | { ok: false; why: string }>
+  /** Where `tasks.report` goes, for a test (the host this module was started by, otherwise). */
+  report?: { env?: Record<string, string | undefined>; fetch?: typeof fetch; log?: (line: string) => void }
 }
 
 /** A protocol place as this module's record names one. Null is no place. */
@@ -169,12 +172,26 @@ export function taskPlace(place: ConversationPlace | null): NamedPlace {
   return place ? namedOf(place) : { epic: null, parts: [], kehikko: null }
 }
 
-/** `start`: a new conversation fed the brief. */
+/**
+ * `start`: a new conversation fed the brief. Answered at once (protocol 2.99.0): declined when the folder
+ * is no project or Antigravity is not installed, else ACCEPTED under the id its run will have, and agy is
+ * started after the answer — it boots and is waited for until it says its conversation's id (up to a
+ * minute), far longer than the host waits: the person was told it did not answer while the conversation
+ * started anyway. What it came to goes to the host as `tasks.report`, said in the person's Inbox.
+ */
 export async function startTask(params: { project: string; brief: string; place: ConversationPlace | null; title: string }, needs: AdoptNeeds): Promise<AgentTaskStartResult> {
   const root = projectRoot(params.project)
-  if (!root.ok) return { outcome: 'declined', session: null, why: root.error }
-  const started = await needs.task(root.value, taskPlace(params.place), params.brief, params.title)
-  return started.ok ? { outcome: 'started', session: started.session, why: '' } : { outcome: 'declined', session: null, why: started.why.slice(0, 400) }
+  if (!root.ok) return { outcome: 'declined', session: null, why: root.error.slice(0, 400), pending: false }
+  if (!needs.program.find().file) return { outcome: 'declined', session: null, why: `${needs.program.name} is not installed on this computer.`, pending: false }
+  const id = needs.program.newId()
+  return acceptTask(
+    id,
+    async () => {
+      const started = await needs.task(root.value, taskPlace(params.place), params.brief, params.title, id)
+      return started.ok ? { ok: true, conversation: started.session } : { ok: false, why: started.why.slice(0, 400) }
+    },
+    { module: ID, ...needs.report, log: needs.report?.log ?? ((line) => console.log(`antigravity: ${line}`)) },
+  )
 }
 
 const json = (body: unknown, status = 200) => Response.json(body, { status, headers: { 'cache-control': 'no-store' } })
