@@ -26,6 +26,16 @@ import { join } from 'node:path'
 const argv = process.argv.slice(2)
 const out = (text: string) => process.stdout.write(text.replace(/\n/g, '\r\n'))
 
+/*
+ * A program slow to boot, or one that cannot start (protocol 2.99.0's conformance): STANDIN_BOOT_MS
+ * before anything else (but its help), and with STANDIN_BOOT_FAILS it then says why and exits non-zero.
+ */
+if (argv[0] !== '--help' && process.env.STANDIN_BOOT_MS) await new Promise((done) => setTimeout(done, Number(process.env.STANDIN_BOOT_MS)))
+if (argv[0] !== '--help' && process.env.STANDIN_BOOT_FAILS) {
+  process.stderr.write('Error: stand-in agy could not start: not signed in\n')
+  process.exit(1)
+}
+
 if (argv[0] === '--help') {
   out('Usage of agy:\n')
   if (!process.env.STANDIN_NOKIT) out('  --add-dir                       Add a directory to the workspace (repeatable) (default [])\n')

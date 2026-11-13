@@ -224,8 +224,23 @@ describe('start', () => {
   test('starts a NEW conversation in the project with the brief as its first prompt, files it under the place, and answers its id', async () => {
     const dir = project()
     const w = world()
-    const said = await startTask({ project: dir, brief: 'Review !4721 and say what is left.', place: WRITING, title: 'Review !4721' }, needs({ task: (p, place, brief, title) => w.runs.task(p, place, brief, title) }))
-    expect(said).toEqual({ outcome: 'started', session: REAL, why: '' })
+    let reported: (params: unknown) => void = () => {}
+    const report = new Promise((done) => (reported = done))
+    const fetch = (async (_url: string, init?: RequestInit) => {
+      reported(JSON.parse(String(init?.body)).params)
+      return Response.json({ ok: true, data: { outcome: 'told', why: '' } })
+    }) as unknown as typeof globalThis.fetch
+    const said = await startTask(
+      { project: dir, brief: 'Review !4721 and say what is left.', place: WRITING, title: 'Review !4721' },
+      needs({
+        program: { ...PROGRAM, find: () => ({ file: '/fake/bin/agy', looked: [], usual: [] }), newId: () => 'h-handle' },
+        task: (p, place, brief, title) => w.runs.task(p, place, brief, title),
+        report: { env: { KEHIKOT_HOST: 'http://127.0.0.1:4170' }, fetch, log: () => {} },
+      }),
+    )
+    /* Accepted at once (protocol 2.99.0); the conversation and its id come after, reported to the host. */
+    expect(said).toEqual({ outcome: 'started', session: 'h-handle', why: '', pending: true })
+    expect(await report).toEqual({ session: 'h-handle', conversation: REAL, outcome: 'started', why: '' })
     expect(w.ptys.length).toBe(1)
     expect(w.ptys[0]!.args).toEqual(['-i', 'Review !4721 and say what is left.'])
     expect(w.ptys[0]!.cwd).toBe(dir)
@@ -247,12 +262,18 @@ describe('start', () => {
     w.runs.endAll()
   })
 
-  test('a CLI that never says its conversation is ended, and the host is told why', async () => {
+  test('a CLI that has not said its conversation yet runs on, under way under its run’s id (protocol 2.99.0)', async () => {
     const dir = project()
     const w = world(true)
-    const said = await w.runs.task(dir, named(WRITING), 'do it', '', 300)
-    expect(said.ok).toBe(false)
-    expect(w.ptys[0]!.killed).toBe(true)
+    const said = await w.runs.task(dir, named(WRITING), 'do it', '', 300, '77777777-7777-4777-8777-777777777777')
+    expect(said).toEqual({ ok: true, session: '77777777-7777-4777-8777-777777777777' })
+    expect(w.ptys[0]!.killed).toBeFalsy()
+    w.runs.endAll()
+  })
+
+  test('declined at once when Antigravity is not installed', async () => {
+    const said = await startTask({ project: project(), brief: 'x', place: null, title: 't' }, needs({ program: { ...PROGRAM, find: () => ({ file: null, looked: [], usual: [] }) } }))
+    expect(said).toMatchObject({ outcome: 'declined', session: null, pending: false })
   })
 })
 
