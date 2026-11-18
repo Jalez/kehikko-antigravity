@@ -7,7 +7,7 @@ import { spawnSync } from 'node:child_process'
 import { PROGRAM, TELLS, agyHome, brainDir, deniedWrite, headOf, home, hooksJson, installFor, learnSession, learnTitle, oscEvent, oscEvents, readCwds, readPs, recordFile, sessionName, titleOf, vouch } from '../program.ts'
 import { assign } from '../record.ts'
 import { writeConversation } from './transcripts.ts'
-import { CONFIG, HOME } from './setup.ts'
+import { CONFIG, HOME, MACHINE } from './setup.ts'
 
 /**
  * The adapter, against a stand-in `agy` and a scratch home.
@@ -280,7 +280,7 @@ describe('installing', () => {
   })
 
   test('is run with the usual places on its PATH', () => {
-    expect(PROGRAM.installEnvironment({ HOME, PATH: '/x' }).PATH?.split(delimiter)).toEqual(['/x', join(HOME, '.local', 'bin'), '/opt/homebrew/bin', '/usr/local/bin', join(HOME, '.bun', 'bin'), '/usr/bin', '/bin'])
+    expect(PROGRAM.installEnvironment({ HOME, PATH: '/x' }).PATH?.split(delimiter)).toEqual(['/x', join(HOME, '.local', 'bin'), join(MACHINE, '/opt/homebrew/bin'), join(MACHINE, '/usr/local/bin'), join(HOME, '.bun', 'bin'), '/usr/bin', '/bin'])
   })
 
   test('when it did not finish, said in a sentence with the next step', () => {
